@@ -1,0 +1,27 @@
+# Loaders de LangChain (PDF, TXT, MD, CSV)
+langchain-community>=0.2.0
+langchain-core>=
+langchain-huggingface>=
+pypdf>=4.0.0
+
+# Text splitter (chunking) de LangChain
+langchain-text-splitters>=0.2.0
+
+# Base vectorial local
+chromadb>=0.5.0
+
+# Ollama local (embeddings + LLM en local)
+requests>=2.31.0
+
+# Google Gemini (alternativa embeddings + LLM)
+# google-genai>=1.0.0
+
+
+# Streamlit (UI)
+streamlit>=1.35.0
+
+
+# Utilidades
+python-dotenv>=1.0.0   
+pandas>=2.0.0          # tabla de métricas en Streamlit
+numpy>=1.24.0          # lo usa scripts/test_embeddings

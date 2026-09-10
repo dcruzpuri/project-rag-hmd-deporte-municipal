@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Break 1 — RAG Engineering</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
+
+        :root {
+            --indigo:    #4F46E5;
+            --violet:    #7C3AED;
+            --sky:       #0EA5E9;
+            --lavender:  #C7D2FE;
+            --lilac:     #EDE9FE;
+            --amber:     #F59E0B;
+            --amber-lt:  #FEF3C7;
+            --green:     #10B981;
+            --green-lt:  #D1FAE5;
+            --rose:      #F43F5E;
+            --rose-lt:   #FFE4E6;
+            --cream:     #FAFAFA;
+            --white:     #FFFFFF;
+            --text-dark: #1E1B4B;
+            --text-mid:  #4C4A7A;
+            --text-lt:   #8B87B5;
+            --shadow:    rgba(79, 70, 229, 0.12);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Outfit', -apple-system, sans-serif;
+            background: var(--cream);
+            color: var(--text-dark);
+            line-height: 1.75;
+            overflow-x: hidden;
+        }
+
+        /* ── HEADER ─────────────────────────────────────── */
+        header {
+            background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 60%, #0EA5E9 100%);
+            padding: 5rem 2rem 4rem;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        header::before {
+            content: '';
+            position: absolute; top: -80px; right: -80px;
+            width: 320px; height: 320px;
+            background: radial-gradient(circle, rgba(255,255,255,0.12) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+        header::after {
+            content: '';
+            position: absolute; bottom: -100px; left: -100px;
+            width: 360px; height: 360px;
+            background: radial-gradient(circle, rgba(14,165,233,0.2) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+        .header-badge {
+            display: inline-block;
+            background: rgba(255,255,255,0.2);
+            border: 2px solid rgba(255,255,255,0.4);
+            color: #fff;
+            font-size: 0.85rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            padding: 0.4rem 1.2rem;
+            border-radius: 50px;
+            margin-bottom: 1.5rem;
+            position: relative; z-index: 1;
+        }
+        h1 {
+            font-size: 3.2rem; font-weight: 800;
+            color: #fff;
+            line-height: 1.15;
+            position: relative; z-index: 1;
+            text-shadow: 0 2px 16px rgba(0,0,0,0.2);
+            margin-bottom: 1rem;
+        }
+        .header-sub {
+            color: rgba(255,255,255,0.85);
+            font-size: 1.2rem; font-weight: 500;
+            position: relative; z-index: 1;
+        }
+        .header-pills {
+            display: flex; flex-wrap: wrap; gap: 0.75rem;
+            justify-content: center;
+            margin-top: 2rem;
+            position: relative; z-index: 1;
+        }
+        .pill {
+            background: rgba(255,255,255,0.18);
+            border: 1.5px solid rgba(255,255,255,0.35);
+            color: #fff;
+            font-size: 0.9rem; font-weight: 600;
+            padding: 0.4rem 1rem;
+            border-radius: 50px;
+        }
+
+        /* ── NAV ─────────────────────────────────────────── */
+        nav {
+            background: var(--white);
+            padding: 1.2rem 2rem;
+            border-bottom: 3px solid var(--lavender);
+            position: sticky; top: 0; z-index: 100;
+            box-shadow: 0 4px 16px var(--shadow);
+        }
+        nav ul { list-style: none; display: flex; flex-wrap: wrap; gap: 2.5rem; justify-content: center; }
+        nav a {
+            color: var(--text-mid); text-decoration: none;
+            font-weight: 600; font-size: 1rem;
+            padding: 0.4rem 0;
+            position: relative; transition: color 0.3s;
+        }
+        nav a:hover { color: var(--indigo); }
+        nav a::after {
+            content: ''; position: absolute; bottom: -2px; left: 0;
+            width: 0; height: 3px;
+            background: linear-gradient(90deg, var(--indigo), var(--violet));
+            border-radius: 2px; transition: width 0.3s;
+        }
+        nav a:hover::after { width: 100%; }
+
+        /* ── CONTAINER & SECTIONS ────────────────────────── */
+        .container { max-width: 1160px; margin: 0 auto; padding: 2rem; }
+
+        section {
+            margin: 2.5rem 0;
+            padding: 2.5rem;
+            background: var(--white);
+            border-radius: 20px;
+            border: 2.5px solid var(--lavender);
+            box-shadow: 0 8px 28px var(--shadow);
+        }
+
+        h2 {
+            font-size: 2.1rem; font-weight: 800;
+            color: var(--indigo);
+            margin-bottom: 2rem;
+            display: flex; align-items: center; gap: 0.9rem;
+        }
+        h2::before {
+            content: '';
+            width: 8px; height: 2.2rem;
+            background: linear-gradient(to bottom, var(--indigo), var(--sky));
+            border-radius: 4px; flex-shrink: 0;
+        }
+        h3 {
+            font-size: 1.55rem; font-weight: 700;
+            color: var(--violet);
+            margin: 2.5rem 0 1rem;
+        }
+        h4 {
+            font-size: 1.2rem; font-weight: 700;
+            color: var(--indigo);
+            margin: 1.75rem 0 0.75rem;
+        }
+        p { margin-bottom: 1.25rem; color: var(--text-mid); }
+        strong { color: var(--text-dark); font-weight: 700; }
+
+        ul, ol { margin: 1rem 0 1.25rem 2rem; color: var(--text-mid); }
+        li { margin: 0.6rem 0; }
+
+        /* ── CODE ────────────────────────────────────────── */
+        code {
+            font-family: 'JetBrains Mono', monospace;
+            background: var(--lilac);
+            color: var(--violet);
+            padding: 0.25rem 0.6rem;
+            border-radius: 6px;
+            font-size: 0.88em;
+            border: 1.5px solid var(--lavender);
+        }
+        pre {
+            background: #1E1B4B;
+            padding: 1.5rem 1.75rem;
+            border-radius: 14px;
+            overflow-x: auto;
+            margin: 1.5rem 0;
+            border: 2px solid #312E8D;
+        }
+        pre code {
+            background: none; border: none; padding: 0;
+            color: #C7D2FE;
+            font-size: 0.92rem; line-height: 1.85;
+        }
+        .cmd-block {
+            background: #1E1B4B;
+            border-left: 5px solid var(--sky);
+            padding: 1.25rem 1.5rem;
+            border-radius: 10px;
+            font-family: 'JetBrains Mono', monospace;
+            color: #BAE6FD;
+            font-size: 0.92rem;
+            margin: 1.25rem 0;
+        }
+        .cmd-block::before { content: '$ '; color: var(--sky); font-weight: 700; }
+
+        /* ── CALLOUTS ────────────────────────────────────── */
+        .warning {
+            background: var(--rose-lt);
+            border-left: 5px solid var(--rose);
+            padding: 1.25rem 1.5rem;
+            border-radius: 12px; margin: 1.5rem 0;
+        }
+        .warning::before {
+            content: '⚠️  Importante';
+            display: block; font-weight: 700;
+            color: var(--rose); margin-bottom: 0.5rem;
+        }
+        .tip {
+            background: var(--green-lt);
+            border-left: 5px solid var(--green);
+            padding: 1.25rem 1.5rem;
+            border-radius: 12px; margin: 1.5rem 0;
+        }
+        .tip::before {
+            content: '💡 Consejo';
+            display: block; font-weight: 700;
+            color: var(--green); margin-bottom: 0.5rem;
+        }
+        .info {
+            background: var(--lavender);
+            border-left: 5px solid var(--indigo);
+            padding: 1.25rem 1.5rem;
+            border-radius: 12px; margin: 1.5rem 0;
+            color: var(--text-dark);
+        }
+        .info::before {
+            content: 'ℹ️  Nota';
+            display: block; font-weight: 700;
+            color: var(--indigo); margin-bottom: 0.5rem;
+        }
+        .optional-badge {
+            display: inline-block;
+            background: var(--amber-lt);
+            color: #92400E;
+            border: 1.5px solid var(--amber);
+            font-size: 0.8rem; font-weight: 700;
+            padding: 0.2rem 0.7rem;
+            border-radius: 50px;
+            margin-left: 0.5rem;
+            vertical-align: middle;
+        }
+
+        /* ── GRID & CARDS ────────────────────────────────── */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem; margin: 1.5rem 0;
+        }
+        .grid-2 { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+
+        .card {
+            background: linear-gradient(135deg, #FAFAFE 0%, var(--lilac) 100%);
+            border: 2px solid var(--lavender);
+            border-radius: 16px; padding: 1.75rem;
+            transition: all 0.3s;
+            box-shadow: 0 4px 12px var(--shadow);
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            border-color: var(--indigo);
+            box-shadow: 0 12px 28px rgba(79,70,229,0.18);
+        }
+        .card h4 { margin-top: 0; }
+
+        /* ── PARTE HEADER CARDS ──────────────────────────── */
+        .parte-header {
+            display: flex; align-items: center; gap: 1rem;
+            padding: 1.5rem 2rem;
+            border-radius: 16px; margin-bottom: 2rem;
+            border: 2px solid;
+        }
+        .parte-num {
+            font-size: 2.5rem; font-weight: 800;
+            line-height: 1; flex-shrink: 0;
+        }
+        .parte-1 { background: #EEF2FF; border-color: var(--indigo); }
+        .parte-1 .parte-num { color: var(--indigo); }
+        .parte-2 { background: #F0F9FF; border-color: var(--sky); }
+        .parte-2 .parte-num { color: var(--sky); }
+        .parte-3 { background: var(--lilac); border-color: var(--violet); }
+        .parte-3 .parte-num { color: var(--violet); }
+        .parte-4 { background: var(--amber-lt); border-color: var(--amber); }
+        .parte-4 .parte-num { color: #92400E; }
+        .parte-header-text h3 { margin: 0; font-size: 1.3rem; }
+        .parte-header-text p { margin: 0.25rem 0 0; font-size: 0.95rem; }
+
+        /* ── TASK LIST ───────────────────────────────────── */
+        .task-list { list-style: none; margin-left: 0; }
+        .task-list li {
+            padding: 0.7rem 0.75rem 0.7rem 2.75rem;
+            position: relative;
+            border-bottom: 1.5px solid var(--lavender);
+            cursor: pointer;
+            user-select: none;
+            transition: color 0.2s;
+        }
+        .task-list li:last-child { border-bottom: none; }
+        .task-list li:hover { color: var(--indigo); }
+        .task-list li::before {
+            content: '';
+            position: absolute; left: 0.6rem; top: 50%;
+            transform: translateY(-50%);
+            width: 20px; height: 20px;
+            border: 2.5px solid var(--lavender);
+            border-radius: 5px;
+            background: var(--white);
+            display: flex; align-items: center; justify-content: center;
+            color: #fff; font-size: 0.8rem; font-weight: 800; line-height: 1;
+            transition: all 0.2s;
+        }
+        .task-list li.done {
+            color: var(--text-lt);
+            text-decoration: line-through;
+            text-decoration-color: var(--lavender);
+        }
+        .task-list li.done::before {
+            content: '✓';
+            background: linear-gradient(135deg, var(--indigo), var(--violet));
+            border-color: var(--indigo);
+        }
+
+        /* ── PIPELINE DIAGRAM ────────────────────────────── */
+        .branch-diagram {
+            font-family: 'JetBrains Mono', monospace;
+            background: #1E1B4B;
+            color: #C7D2FE;
+            padding: 1.75rem 2rem;
+            border-radius: 16px;
+            font-size: 0.9rem;
+            line-height: 2.1;
+            margin: 1.5rem 0;
+            overflow-x: auto;
+            border: 2px solid #312E8D;
+        }
+        .b-main  { color: #34D399; font-weight: 700; }
+        .b-dev   { color: #60A5FA; font-weight: 700; }
+        .b-feat  { color: #F9A8D4; font-weight: 700; }
+        .b-node  { color: #FCD34D; }
+        .b-arrow { color: #818CF8; }
+        .b-pr    { color: #F59E0B; font-weight: 700; }
+
+        /* ── STEP FLOW ───────────────────────────────────── */
+        .steps { display: flex; flex-direction: column; gap: 0; margin: 1.5rem 0; }
+        .step {
+            display: flex; gap: 1.25rem; align-items: flex-start;
+            padding: 1.25rem 0;
+            border-bottom: 1.5px dashed var(--lavender);
+        }
+        .step:last-child { border-bottom: none; }
+        .step-num {
+            flex-shrink: 0;
+            width: 36px; height: 36px;
+            background: linear-gradient(135deg, var(--indigo), var(--violet));
+            color: #fff; font-weight: 800; font-size: 0.9rem;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            margin-top: 0.1rem;
+        }
+        .step-content h4 { margin: 0 0 0.4rem; }
+        .step-content p { margin: 0; }
+
+        /* ── PR TEMPLATE CARD ────────────────────────────── */
+        .pr-template {
+            background: #F8FAFF;
+            border: 2px dashed var(--indigo);
+            border-radius: 14px;
+            padding: 1.5rem 1.75rem;
+            margin: 1.25rem 0;
+        }
+        .pr-template h4 { margin-top: 0; }
+
+        /* ── TABLE ───────────────────────────────────────── */
+        table {
+            width: 100%; border-collapse: collapse;
+            margin: 1.5rem 0; border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 4px 16px var(--shadow);
+            border: 2px solid var(--lavender);
+        }
+        th {
+            background: linear-gradient(135deg, var(--indigo), var(--violet));
+            color: #fff; padding: 1rem 1.25rem;
+            text-align: left; font-weight: 700;
+        }
+        td { padding: 1rem 1.25rem; border-top: 1.5px solid var(--lavender); color: var(--text-mid); }
+        tr:hover { background: #F5F3FF; }
+
+        /* ── DELIVERABLES BOX ────────────────────────────── */
+        .deliverables {
+            background: linear-gradient(135deg, #EEF2FF, var(--lilac));
+            border: 2.5px solid var(--indigo);
+            border-radius: 16px; padding: 2rem;
+            margin: 1.5rem 0;
+        }
+        .deliverables h4 { margin-top: 0; color: var(--indigo); }
+
+        /* ── EVAL AREA CARDS ─────────────────────────────── */
+        .eval-area {
+            border: 2px solid var(--lavender);
+            border-left: 6px solid var(--indigo);
+            border-radius: 14px;
+            padding: 1.5rem 1.75rem;
+            margin: 1.25rem 0;
+            background: #FCFCFF;
+        }
+        .eval-area h4 { margin: 0 0 0.75rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+        .pct-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, var(--indigo), var(--violet));
+            color: #fff;
+            font-size: 0.85rem; font-weight: 800;
+            padding: 0.15rem 0.75rem;
+            border-radius: 50px;
+            margin-left: auto;
+        }
+        .pct-badge.bonus { background: linear-gradient(135deg, var(--amber), #D97706); }
+        .eval-area ul { margin: 0.5rem 0 0 1.5rem; }
+        .eval-area.a-tecnico { border-left-color: var(--indigo); }
+        .eval-area.a-present { border-left-color: var(--sky); }
+        .eval-area.a-git     { border-left-color: var(--violet); }
+        .eval-area.a-equipo  { border-left-color: var(--green); }
+        .eval-area.a-memoria { border-left-color: var(--amber); }
+        .eval-area.a-extra   { border-left-color: var(--rose); }
+
+        /* ── FOOTER ──────────────────────────────────────── */
+        footer {
+            text-align: center; padding: 3rem 2rem;
+            color: var(--text-lt);
+            border-top: 3px solid var(--lavender);
+            background: var(--white); margin-top: 3rem;
+        }
+        footer p { color: var(--text-lt); margin-bottom: 0.25rem; }
+
+        @media (max-width: 768px) {
+            h1 { font-size: 2.2rem; }
+            nav ul { flex-direction: column; gap: 1rem; align-items: center; }
+            section { padding: 1.5rem; }
+            .grid { grid-template-columns: 1fr; }
+            .parte-num { font-size: 1.9rem; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ══════════ HEADER ══════════ -->
+<header>
+    <div class="header-badge">Bootcamp IA Generativa</div>
+    <h1>Project Break 1 · RAG Engineering</h1>
+    <p class="header-sub">Sistema RAG completo end-to-end · Duración: 2 semanas</p>
+    <div class="header-pills">
+        <span class="pill">📄 Corpus propio</span>
+        <span class="pill">🧩 Chunking &amp; Embeddings</span>
+        <span class="pill">🗂️ ChromaDB</span>
+        <span class="pill">🔎 Retrieval</span>
+        <span class="pill">🤖 Generación anclada</span>
+        <span class="pill">📊 Streamlit</span>
+    </div>
+</header>
+
+<!-- ══════════ NAV ══════════ -->
+<nav>
+    <ul>
+        <li><a href="#contexto">Contexto</a></li>
+        <li><a href="#git-flow">Git &amp; equipo</a></li>
+        <li><a href="#corpus">Corpus &amp; temáticas</a></li>
+        <li><a href="#capacidades">Capacidades</a></li>
+        <li><a href="#partes">Partes 1–4</a></li>
+        <li><a href="#entregables">Entregables</a></li>
+        <li><a href="#evaluacion">Evaluación</a></li>
+    </ul>
+</nav>
+
+<div class="container">
+
+    <!-- ══════════ SECCIÓN 0: CONTEXTO ══════════ -->
+    <section id="contexto" style="background: linear-gradient(135deg,#EEF2FF,var(--lilac)); border-color: var(--indigo);">
+        <h2>¿De qué va este proyecto?</h2>
+        <p>Construís en equipo un <strong>sistema RAG completo end-to-end</strong>: corpus propio, índice vectorial, generación anclada al contexto, evaluación mínima, logging y visualización con Streamlit. Es la misma arquitectura que las <em>live reviews</em> de los Sprints 8–10, pero aquí la cerráis vosotros de punta a punta y con un <strong>dominio nuevo</strong>.</p>
+        <p>Integra lo que habéis visto de RAG Engineering: ingesta, chunking y embeddings (Sprint 8), bases vectoriales y retrieval (Sprint 9), y generación, evaluación e interfaces (Sprint 10).</p>
+
+        <h3>Una pieza de un puzzle</h3>
+        <p>Este Project Break es la <strong>primera pieza</strong> de un proyecto incremental. Diseñad el retrieve/generación como funciones claras (p. ej. <code>rag_ask(consulta) -&gt; str</code>), <strong>separadas de la UI</strong>, para poder reutilizar el código después.</p>
+        <table>
+            <tr><th>Pieza</th><th>Proyecto</th><th>Rol</th></tr>
+            <tr><td><strong>1</strong></td><td><strong>Project Break RAG</strong></td><td>Sistema RAG modular y usable</td></tr>
+            <tr><td>2</td><td>Project Break Agentes</td><td>Ese RAG se reutilizará como <strong>tool</strong> del agente</td></tr>
+            <tr><td>3</td><td>Proyecto final MLOps</td><td>Empaquetar, desplegar y monitorizar el sistema</td></tr>
+        </table>
+
+        <h3>Objetivos generales</h3>
+        <p>Desarrollar un sistema RAG modular y usable que:</p>
+        <ol style="margin-left:1.25rem;">
+            <li>Integre un corpus de documentos externos.</li>
+            <li>Indexe y recupere información con una base vectorial.</li>
+            <li>Genere respuestas ancladas al contexto recuperado.</li>
+            <li>Tenga arquitectura modular y mantenible.</li>
+            <li>Incluya evaluación mínima, logging básico y visualización con Streamlit.</li>
+        </ol>
+        <div class="tip">No hace falta inventar un producto distinto: reutilizad la estructura de las prácticas de clase y <strong>cerradlo como entregable de equipo</strong>. Elegiréis una temática y curaréis el corpus vosotros mismos.</div>
+    </section>
+
+    <!-- ══════════ SECCIÓN 1: GIT & EQUIPO ══════════ -->
+    <section id="git-flow">
+        <h2>Trabajo en equipo y Git</h2>
+
+        <p>Gestionáis el proyecto con <strong>GitHub desde el primer día</strong>. La organización interna del equipo (quién hace qué y en qué orden) la decidís vosotros, pero las reglas mínimas son obligatorias.</p>
+
+        <h3>Reglas mínimas</h3>
+        <ul class="task-list">
+            <li>Crear el <strong>repositorio en GitHub</strong> al inicio del proyecto</li>
+            <li><strong>Mínimo una PR revisada y mergeada por cada miembro</strong> del equipo</li>
+            <li>Integrar con <strong>pull requests</strong> hacia <code>develop</code>; resolver conflictos en la rama antes del merge</li>
+            <li><strong>No subir claves</strong> — usar <code>.env</code> y <code>.gitignore</code></li>
+            <li>README del repo: clonar, instalar dependencias, configurar API keys, indexar el corpus y ejecutar CLI + Streamlit</li>
+        </ul>
+
+        <h3>Estructura de ramas</h3>
+        <div class="grid grid-2">
+            <div class="card">
+                <h4>🟢 <code>main</code></h4>
+                <p>Código estable y entregable. <strong>No trabajéis directamente aquí.</strong> Antes de mergear a <code>main</code>, <code>develop</code> debe poder indexar y responder sin errores pendientes.</p>
+            </div>
+            <div class="card">
+                <h4>🔵 <code>develop</code></h4>
+                <p>Integración del trabajo del equipo. Las ramas secundarias se crean desde aquí y se mergean aquí vía PR.</p>
+            </div>
+            <div class="card">
+                <h4>🌸 Ramas secundarias</h4>
+                <p>Una rama por bloque de trabajo. Nombres en minúsculas y descriptivos.</p>
+            </div>
+        </div>
+
+        <h3>Convención de ramas</h3>
+        <table>
+            <tr><th>Bloque de trabajo</th><th>Nombre de rama</th></tr>
+            <tr><td>Corpus y datos</td><td><code>feature/corpus-datos</code></td></tr>
+            <tr><td>Indexación y retrieval</td><td><code>feature/index-retrieval</code></td></tr>
+            <tr><td>Generación y evaluación</td><td><code>feature/generacion-eval</code></td></tr>
+            <tr><td>Interfaz Streamlit</td><td><code>feature/streamlit-ui</code></td></tr>
+            <tr><td>Corrección puntual</td><td><code>fix/chroma-path</code></td></tr>
+            <tr><td>Actualizar dependencias</td><td><code>update/requirements</code></td></tr>
+        </table>
+
+        <h3>Flujo recomendado</h3>
+        <div class="branch-diagram">
+<span class="b-dev">develop</span> <span class="b-arrow">──►</span> <span class="b-feat">feature/tu-tarea</span> <span class="b-arrow">──►</span> <span class="b-node">commits</span> <span class="b-arrow">──►</span> <span class="b-pr">PR</span> <span class="b-arrow">──►</span> merge a <span class="b-dev">develop</span>
+                                              <span class="b-arrow">│</span>
+<span class="b-dev">develop</span> <span class="b-arrow">──────────────────────────────────────────────┘</span>
+       <span class="b-arrow">│</span>
+       <span class="b-arrow">└──►</span> cuando todo esté listo y probado <span class="b-arrow">──►</span> merge a <span class="b-main">main</span>
+        </div>
+        <div class="warning">Nunca subáis <code>.env</code>, <code>.venv/</code> ni el índice Chroma completo si pesa demasiado. Documentad cómo regenerarlo.</div>
+
+        <h3>Estructura de proyecto (orientativa)</h3>
+        <pre><code>project_break_rag/
+├── README.md
+├── requirements.txt
+├── .env.example
+├── .gitignore
+├── config.py
+├── main.py                 # CLI: prepare / index / query / ask
+├── app.py                  # Streamlit
+├── src/
+│   ├── load.py
+│   ├── chunk.py
+│   ├── embed.py
+│   ├── index.py
+│   ├── retrieve.py
+│   ├── generate.py
+│   └── logging_utils.py
+├── data/                   # corpus (o instrucciones de descarga)
+├── queries/                # preguntas de evaluación
+├── entregables/            # informe final del equipo
+│   └── informe_decisiones.md
+└── chroma/ o output/       # índice (gitignored)</code></pre>
+        <div class="tip">Evitad un único notebook o script monolítico como entregable. Mantened <strong>separación de responsabilidades</strong>: carga, chunking, embed, índice, retrieve, generate, UI.</div>
+    </section>
+
+    <!-- ══════════ SECCIÓN 2: CORPUS & TEMÁTICAS ══════════ -->
+    <section id="corpus">
+        <h2>Corpus &amp; temáticas</h2>
+
+        <p>No hay un zip de datos cerrado en este enunciado: <strong>el corpus lo curáis vosotros</strong>. Vuestra tarea es investigar las fuentes, descargar, filtrar y documentar el corpus final. Fijad la temática cuanto antes para no consumir demasiado tiempo en la investigación.</p>
+
+        <h3>Requisitos del corpus</h3>
+        <ul class="task-list">
+            <li>Al menos <strong>2 formatos</strong> distintos (p. ej. PDF + MD/TXT, o PDF + CSV)</li>
+            <li>Preferible combinar <strong>texto</strong> (guía/FAQ/PDF) con algo estructurado (CSV)</li>
+            <li>Volumen razonable (5–20 documentos, o 1 PDF grande + FAQ + CSV)</li>
+            <li>Documentar las fuentes en el README (enlaces y fecha de descarga)</li>
+            <li>Evitar PDFs solo imagen (escaneados sin texto) y web scraping agresivo</li>
+        </ul>
+
+        <div class="info">Elegid <strong>una</strong> de las cuatro temáticas. Si os surge otra que no esté en la lista, proponedla a los profesores para valorar su viabilidad. Las temáticas de clase (calidad del aire, agenda cultural) <strong>no entran</strong>: el objetivo es un corpus nuevo.</div>
+
+        <div class="grid grid-2">
+            <div class="card">
+                <h4>🚇 1 · Transporte / abonos</h4>
+                <p>Asistente sobre tarifas, zonas, abonos y condiciones de viaje (p. ej. CRTM / Metro / Cercanías).</p>
+                <p style="margin-bottom:0;"><strong>Fuentes:</strong> CRTM, Renfe Cercanías, Open Data Madrid / EMT, FAQ oficiales de títulos y tarifas.</p>
+                <p style="margin-bottom:0;"><em>Ej.:</em> ¿Qué zonas cubre el abono mensual? ¿Puedo usar el mismo título en Metro y Cercanías?</p>
+            </div>
+            <div class="card">
+                <h4>🎓 2 · Becas / trámites</h4>
+                <p>Asistente de <strong>una</strong> convocatoria o trámite concreto (requisitos, plazos, documentación).</p>
+                <p style="margin-bottom:0;"><strong>Fuentes:</strong> sede.educacion.gob.es / becas MEC, SEPE / Seguridad Social, sedes autonómicas, un PDF acotado del BOE.</p>
+                <p style="margin-bottom:0;"><em>Ej.:</em> ¿Qué requisitos pide? ¿Qué documentos entregar? ¿Hasta qué fecha se solicita?</p>
+            </div>
+            <div class="card">
+                <h4>🏞️ 3 · Parques / turismo sostenible</h4>
+                <p>Asistente del visitante (normas, rutas, restricciones, temporadas).</p>
+                <p style="margin-bottom:0;"><strong>Fuentes:</strong> miteco.gob.es (parques nacionales), webs de parques (Picos, Doñana, Guadarrama…), open data de turismo regional.</p>
+                <p style="margin-bottom:0;"><em>Ej.:</em> ¿Puedo llevar perro? ¿Hay restricción de acceso en verano? ¿Qué rutas son para principiantes?</p>
+            </div>
+            <div class="card">
+                <h4>🏊 4 · Deporte municipal</h4>
+                <p>Asistente de instalaciones municipales (normas, tarifas, reservas, horarios).</p>
+                <p style="margin-bottom:0;"><strong>Fuentes:</strong> open data del ayuntamiento, PDFs de normas/tarifas deportivas, web municipal de deportes.</p>
+                <p style="margin-bottom:0;"><em>Ej.:</em> ¿Cuánto cuesta el abono de piscina? ¿Puedo reservar siendo no empadronado?</p>
+            </div>
+        </div>
+        <div class="tip">Las listas completas de recursos y URLs orientativas por temática están en el enunciado original (<code>README.md</code>). Empezad por ahí para localizar los PDFs y CSV.</div>
+    </section>
+
+    <!-- ══════════ SECCIÓN 3: CAPACIDADES ══════════ -->
+    <section id="capacidades">
+        <h2>Capacidades del sistema</h2>
+
+        <div class="grid grid-2">
+            <div class="card">
+                <h4>1 · Pipeline offline (indexación)</h4>
+                <p>Documentos → limpieza → chunking → embeddings → <strong>ChromaDB</strong> persistente.</p>
+            </div>
+            <div class="card">
+                <h4>2 · Retrieval</h4>
+                <p>Dada una pregunta, recuperar top-k chunks y mostrar el contexto (CLI y/o Streamlit).</p>
+            </div>
+            <div class="card">
+                <h4>3 · Generación RAG</h4>
+                <p>Respuesta del LLM <strong>usando solo el contexto</strong>; si no hay evidencia, abstenerse («no sé» / «no está en los documentos»).</p>
+            </div>
+            <div class="card">
+                <h4>4 · Interfaz</h4>
+                <p>Streamlit con chat, contexto visible y métricas simples (k, nº chunks, tiempo, modelo).</p>
+            </div>
+        </div>
+
+        <h3>Pipeline completo</h3>
+        <div class="branch-diagram">
+<span class="b-node">Documentos</span>
+    <span class="b-arrow">↓</span>
+<span class="b-node">Ingesta + limpieza</span>
+    <span class="b-arrow">↓</span>
+<span class="b-node">Chunking</span>
+    <span class="b-arrow">↓</span>
+<span class="b-node">Embeddings</span>
+    <span class="b-arrow">↓</span>
+<span class="b-dev">ChromaDB (persistente)</span>
+    <span class="b-arrow">↓</span>
+<span class="b-feat">Retriever (top-k)</span>
+    <span class="b-arrow">↓</span>
+<span class="b-node">Contexto + prompt</span>
+    <span class="b-arrow">↓</span>
+<span class="b-main">LLM → respuesta</span>
+    <span class="b-arrow">↓</span>
+<span class="b-node">CLI + Streamlit</span>
+        </div>
+
+        <div class="grid grid-2">
+            <div class="card">
+                <h4>✅ El sistema debe</h4>
+                <ul style="margin-left:1rem;">
+                    <li>Anclarse al corpus</li>
+                    <li>Citar o mostrar fuentes/chunks</li>
+                    <li>Admitir «no sé» si no hay evidencia en el contexto</li>
+                </ul>
+            </div>
+            <div class="card">
+                <h4>🚫 No se permite</h4>
+                <ul style="margin-left:1rem;">
+                    <li>Inventar datos fuera del corpus</li>
+                    <li>Depender solo de un notebook sin módulos</li>
+                    <li>Mezclar indexación y UI de forma inseparable</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="info">Separad <strong>offline</strong> (preparar e indexar: <code>--prepare</code> / <code>--index</code>) de <strong>online</strong> (preguntar: <code>--query</code> retrieval / <code>--ask</code> RAG completo). Usad prompts con bloques claros: instrucciones + <code>--- CONTEXTO ---</code> + <code>--- PREGUNTA ---</code>. Al indexar, guardad al menos el metadato <code>source</code>.</div>
+
+        <h3>Requisitos obligatorios</h3>
+        <ul class="task-list">
+            <li>Corpus externo curado por el equipo (≥2 formatos)</li>
+            <li>Pipeline: load → clean/chunk → embed → <strong>ChromaDB</strong> persistente (con metadatos mínimos, p. ej. <code>source</code>)</li>
+            <li>Separación indexado vs pregunta</li>
+            <li>Retriever top-k + contexto al prompt; <code>MAX_CHUNKS</code> y <code>TOP_K</code> documentados. Si cambiáis embeddings o límites, <strong>regenerad el índice</strong></li>
+            <li><strong>Fallback:</strong> generación usando el contexto; si no hay evidencia, abstenerse. Incluid <strong>al menos 1 pregunta fuera de corpus</strong></li>
+            <li>Código <strong>modular</strong> (no un notebook monolítico)</li>
+            <li><strong>Streamlit:</strong> chat + visibilidad de chunks/contexto recuperado</li>
+            <li><strong>Evaluación en dos capas:</strong> retrieval (≥2 valores de K) + generación (8–15 preguntas, varias in-corpus + ≥1 fuera)</li>
+            <li><strong>Logging básico:</strong> pregunta, k, nº chunks, tiempo, modelo</li>
+            <li>Tabla simple de métricas en Streamlit</li>
+            <li>API interna usable sin UI: <code>responder(pregunta) -&gt; dict</code> y, opcional, <code>rag_ask(consulta) -&gt; str</code></li>
+        </ul>
+    </section>
+
+    <!-- ══════════ SECCIÓN 4: PARTES ══════════ -->
+    <section id="partes">
+        <h2>Partes del proyecto</h2>
+
+        <!-- PARTE 1 -->
+        <div class="parte-header parte-1">
+            <div class="parte-num">01</div>
+            <div class="parte-header-text">
+                <h3>Tema y corpus</h3>
+                <p>Cerrar dominio y datos antes de programar el pipeline completo</p>
+            </div>
+        </div>
+        <ul class="task-list">
+            <li>Elegir la temática del RAG</li>
+            <li>Localizar y descargar fuentes; dejar el corpus en <code>data/</code> (o documentar descarga reproducible)</li>
+            <li>Acordar el alcance: qué preguntas sí / no debe responder el asistente</li>
+            <li>Redactar en el README: tema (2–3 líneas), fuentes concretas, formatos (≥2), 5 preguntas de ejemplo y confirmación de datos públicos / uso educativo</li>
+        </ul>
+
+        <!-- PARTE 2 -->
+        <div class="parte-header parte-2" style="margin-top:2.5rem;">
+            <div class="parte-num">02</div>
+            <div class="parte-header-text">
+                <h3>Indexación y retrieval</h3>
+                <p>Pipeline offline + búsqueda semántica usable (alineado con S8–S9)</p>
+            </div>
+        </div>
+        <ul class="task-list">
+            <li>Load → clean/chunk → embed → <strong>ChromaDB</strong> persistente (incluye <code>source</code>)</li>
+            <li>Separar indexado de la pregunta (<code>--prepare</code> / <code>--index</code> vs <code>--query</code>)</li>
+            <li>Documentar <code>MAX_CHUNKS</code> y <code>TOP_K</code> en <code>config.py</code> / README</li>
+            <li><strong>Demo 1:</strong> indexar el corpus. <strong>Demo 2:</strong> <code>--query</code> — solo retrieval + contexto</li>
+            <li>Probar <strong>≥2 valores de top-k</strong> en la misma pregunta; anotar en el informe qué cambia (ruido vs acierto)</li>
+            <li>Logging básico al consultar (pregunta, k, nº chunks)</li>
+        </ul>
+        <div class="warning">Si cambiáis embeddings o <code>MAX_CHUNKS</code>, <strong>regenerad el índice desde cero</strong>.</div>
+
+        <!-- PARTE 3 -->
+        <div class="parte-header parte-3" style="margin-top:2.5rem;">
+            <div class="parte-num">03</div>
+            <div class="parte-header-text">
+                <h3>Generación, evaluación y API interna</h3>
+                <p>Cerrar el ciclo RAG y dejar el componente reutilizable</p>
+            </div>
+        </div>
+        <ul class="task-list">
+            <li>Prompt con bloques claros (instrucciones + contexto + pregunta) + generación con el LLM elegido</li>
+            <li><strong>Fallback / abstención</strong> si no hay evidencia; probar al menos un caso <strong>fuera de corpus</strong></li>
+            <li>API interna sin Streamlit: <code>responder(pregunta) -&gt; dict</code> (respuesta, chunks/fuentes); opcional <code>rag_ask(consulta) -&gt; str</code></li>
+            <li>Set de <strong>8–15 preguntas</strong> en <code>queries/</code> (in-corpus + ≥1 fuera) + criterios evidencia / grounding / abstención</li>
+            <li>Evaluación de retrieval ligera: mismas preguntas con ≥2 valores de K</li>
+            <li><strong>Comando CLI:</strong> <code>--ask</code> — respuesta RAG completa</li>
+            <li>Ampliar logging: tiempo, modelo, (opcional) si hubo abstención</li>
+        </ul>
+        <div class="card">
+            <h4>Criterios de aceptación (Parte 3)</h4>
+            <ul style="margin-left:1rem;">
+                <li><code>--ask</code> in-corpus devuelve texto + fuentes/chunks</li>
+                <li><code>--ask</code> fuera de corpus → abstención (no inventa)</li>
+                <li>Prompt con secciones delimitadas</li>
+                <li><code>responder</code> (dict) y/o <code>rag_ask</code> (str) callable sin UI</li>
+            </ul>
+        </div>
+
+        <!-- PARTE 4 -->
+        <div class="parte-header parte-4" style="margin-top:2.5rem;">
+            <div class="parte-num">04</div>
+            <div class="parte-header-text">
+                <h3>Streamlit, informe y cierre</h3>
+                <p>Interfaz demostrable y entrega documentada</p>
+            </div>
+        </div>
+        <ul class="task-list">
+            <li><strong>Streamlit:</strong> chat + chunks/contexto visible + tabla simple de métricas</li>
+            <li>README del equipo completo (instalación, indexado, CLI, UI, fuentes, capturas)</li>
+            <li>Informe en <code>entregables/informe_decisiones.md</code> con: experimento de chunking (con números), observación con 2 valores de K, 1 acierto in-corpus + 1 abstención fuera de corpus, y 3 fallos + siguientes pasos</li>
+            <li>Comprobar que no hay secretos en el repo y que <code>main</code> está listo para entregar</li>
+        </ul>
+
+        <h3>Experimentos opcionales <span class="optional-badge">Opcional</span></h3>
+        <p>No son obligatorios ni sustituyen los requisitos. Si os sobra tiempo, elegid 1–3 y documentad: <em>qué cambiasteis → qué observasteis → qué cambiaríais en un sistema real</em>.</p>
+        <div class="grid grid-2">
+            <div class="card">
+                <h4>Prompt / generación</h4>
+                <ul style="margin-left:1rem;">
+                    <li>Restrictivo vs permisivo con una pregunta fuera de corpus</li>
+                    <li>Temperatura <code>0.0</code> vs <code>0.7</code> en la misma pregunta</li>
+                </ul>
+            </div>
+            <div class="card">
+                <h4>Retrieval / índice</h4>
+                <ul style="margin-left:1rem;">
+                    <li>Barrido de K (<code>1</code>, <code>3</code>, <code>5</code>)</li>
+                    <li>Citas explícitas del fichero fuente</li>
+                    <li>Bajar <code>MAX_CHUNKS</code> y comparar</li>
+                    <li>Chunking A/B</li>
+                </ul>
+            </div>
+            <div class="card">
+                <h4>Robustez</h4>
+                <ul style="margin-left:1rem;">
+                    <li>Pregunta vacía / basura sin llamar al LLM</li>
+                    <li>Inyección ligera contra el prompt restrictivo</li>
+                </ul>
+            </div>
+            <div class="card">
+                <h4>UI / contrato reutilizable</h4>
+                <ul style="margin-left:1rem;">
+                    <li>Misma pregunta en CLI y Streamlit</li>
+                    <li>Chat con <code>st.chat_input</code> / <code>st.chat_message</code></li>
+                    <li>Feedback 👍 / 👎 en <code>st.session_state</code></li>
+                </ul>
+            </div>
+        </div>
+        <div class="info">Fuera de estos opcionales quedan fine-tuning, hybrid search, rerankers o deploy en la nube: eso pertenece a módulos posteriores.</div>
+    </section>
+
+    <!-- ══════════ SECCIÓN 5: ENTREGABLES ══════════ -->
+    <section id="entregables">
+        <h2>Entregables y cierre</h2>
+
+        <div class="deliverables">
+            <h4>📦 Entregables finales</h4>
+            <ul>
+                <li><strong>Repositorio GitHub</strong> desde el primer día, con código reproducible, <code>.env.example</code>, <code>.gitignore</code> y README bien documentado</li>
+                <li><strong>Sistema RAG funcional (CLI):</strong> indexar corpus + preguntar (<code>--query</code> / <code>--ask</code>)</li>
+                <li><strong>Web App Streamlit:</strong> chat + chunks/contexto visible + tabla simple de métricas</li>
+                <li><strong>Corpus documentado</strong> en <code>data/</code> (o instrucciones de descarga) + fuentes en el README (≥2 formatos)</li>
+                <li><strong>Evaluación mínima:</strong> 8–15 preguntas en <code>queries/</code> (≥1 fuera de corpus) + notas de retrieval con ≥2 valores de K</li>
+                <li><strong>Informe breve</strong> (<code>entregables/informe_decisiones.md</code>): chunking, K, 1 acierto + 1 abstención, 3 fallos y siguientes pasos</li>
+                <li><strong>Presentación final</strong> (~10 min): en vivo en clase o vídeo grabado</li>
+            </ul>
+        </div>
+
+        <h3>Plan de 2 semanas</h3>
+        <table>
+            <tr><th>Semana</th><th>Orientación</th></tr>
+            <tr><td><strong>1</strong></td><td>Partes 1–2: tema, corpus, indexado, <code>--query</code>, README parcial, PRs en marcha</td></tr>
+            <tr><td><strong>2</strong></td><td>Partes 3–4: <code>--ask</code>, eval, Streamlit, informe, presentación</td></tr>
+        </table>
+
+        <h3>Requisitos técnicos y entorno</h3>
+        <div class="grid grid-2">
+            <div class="card">
+                <h4>Stack de referencia</h4>
+                <p>Python 3.10+ · LangChain · embeddings · <strong>ChromaDB</strong> · Streamlit · LLM a vuestra elección (Gemini es el camino más directo; OpenAI, Hugging Face, etc. también valen si lo documentáis).</p>
+            </div>
+            <div class="card">
+                <h4>Entorno virtual</h4>
+                <pre><code>python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+# editar la API key del proveedor</code></pre>
+            </div>
+        </div>
+
+        <h3>Presentación final (~10 min)</h3>
+        <div class="card">
+            <ol style="margin-left:1.25rem;">
+                <li>Contexto: temática elegida, por qué ese corpus y pieza del puzzle (RAG → Agentes → MLOps)</li>
+                <li>Demo en vivo: indexado (si hace falta) + pregunta en CLI o Streamlit mostrando chunks</li>
+                <li>Un caso difícil: abstención o grounding (pregunta fuera de corpus o ambigua)</li>
+                <li>Decisiones clave: chunking, top-k, límites, proveedor</li>
+                <li>3 fallos conocidos y qué haríais en la siguiente iteración (Agentes / MLOps)</li>
+            </ol>
+            <p style="margin-bottom:0;"><strong>La presentación es obligatoria.</strong> Se puede hacer en vivo durante la clase de presentaciones o enviar un vídeo grabado. Podéis hacer ambas cosas.</p>
+        </div>
+
+        <h3>Checklist del proyecto</h3>
+        <ul class="task-list">
+            <li>Repo GitHub desde el día 1 · PRs · <code>main</code> estable</li>
+            <li>Tema del menú (o alternativa con OK de profesores)</li>
+            <li>Corpus documentado (≥2 formatos)</li>
+            <li>Índice Chroma persistente (metadatos <code>source</code>; recreate si cambia el modelo/límites)</li>
+            <li>CLI: indexar + <code>--query</code> + <code>--ask</code></li>
+            <li>Prompt con secciones delimitadas</li>
+            <li><code>responder</code> (dict) y/o <code>rag_ask</code> (str) callable sin UI</li>
+            <li>Grounding + ≥1 caso fuera de corpus con abstención</li>
+            <li>Retrieval probado con ≥2 valores de K</li>
+            <li>Streamlit con contexto + métricas simples</li>
+            <li>8–15 preguntas de eval (in-corpus + fuera)</li>
+            <li>Logging básico</li>
+            <li>README + <code>.env.example</code> + <code>requirements.txt</code></li>
+            <li>Informe (chunking, K, acierto, abstención, 3 fallos)</li>
+            <li>(Opcional) 1–3 experimentos documentados</li>
+            <li>Presentación (~10 min) en directo o vídeo grabado</li>
+        </ul>
+    </section>
+
+    <!-- ══════════ SECCIÓN 6: EVALUACIÓN ══════════ -->
+    <section id="evaluacion">
+        <h2>¿Cómo se evalúa el proyecto?</h2>
+
+        <p>Vuestro proyecto se valora en <strong>seis áreas</strong>. La mayoría son de <strong>equipo</strong> (misma valoración para todos), y una es <strong>individual</strong> (según vuestra aportación real al repositorio). El porcentaje junto a cada área indica su <strong>peso sobre la nota</strong>. Usad estos puntos como una guía de en qué fijaros para que el trabajo esté completo y bien cerrado.</p>
+
+        <div class="info">Las cinco áreas base suman el <strong>100&nbsp;%</strong> de la valoración: Desarrollo Técnico (35&nbsp;%), Presentación (23&nbsp;%), Git (17&nbsp;%), Trabajo en equipo (15&nbsp;%) y Memoria (10&nbsp;%). Los <strong>Extras</strong> suman aparte, hasta un <strong>+10&nbsp;%</strong> adicional.</div>
+
+        <div class="eval-area a-tecnico">
+            <h4>⚙️ Desarrollo Técnico <span style="font-weight:600;color:var(--text-lt);font-size:0.9rem;">· equipo</span> <span class="pct-badge">35&nbsp;%</span></h4>
+            <p style="margin-bottom:0.5rem;">El corazón del proyecto. Se fija en:</p>
+            <ul>
+                <li><strong>Estructura y modularización:</strong> responsabilidades separadas por módulo (<code>load/chunk/embed/index/retrieve/generate</code>/UI), código legible y configuración centralizada en <code>config.py</code>.</li>
+                <li><strong>Funcionalidad:</strong> indexación completa y persistente (ChromaDB con <code>source</code>), retrieval coherente y generación anclada al contexto de forma consistente.</li>
+                <li><strong>Robustez:</strong> abstención ante evidencia insuficiente o pregunta fuera de corpus, y buen manejo de inputs inválidos o extremos (vacío, muy largo).</li>
+                <li><strong>Escalabilidad:</strong> <code>TOP_K</code> / <code>MAX_CHUNKS</code> configurables, índice regenerable y diseño listo para reutilizarse en el proyecto de Agentes.</li>
+                <li><strong>Usabilidad:</strong> Streamlit con chat y contexto visibles, métricas simples y CLI clara (<code>--index</code>, <code>--query</code>, <code>--ask</code>).</li>
+            </ul>
+            <div class="warning" style="margin-top:0.75rem;">Inventar datos fuera del corpus en lugar de abstenerse es el error más grave: la abstención cuando no hay evidencia es imprescindible.</div>
+            <div class="info" style="margin-top:0.75rem;">Los nombres concretos de ficheros, funciones, variables o comandos del enunciado son <strong>orientativos</strong>: se evalúa el <strong>comportamiento</strong> y la <strong>tecnología requerida</strong> (ChromaDB, Streamlit), no que sigáis la nomenclatura exacta del README. Podéis nombrar vuestros módulos y flags como prefiráis.</div>
+        </div>
+
+        <div class="eval-area a-present">
+            <h4>🎤 Presentación <span style="font-weight:600;color:var(--text-lt);font-size:0.9rem;">· equipo</span> <span class="pct-badge">23&nbsp;%</span></h4>
+            <ul>
+                <li><strong>Expresión oral:</strong> claridad, participación repartida entre el equipo y no leer literalmente las diapositivas.</li>
+                <li><strong>Soporte visual:</strong> legible, cuidado y sin sobrecarga de texto.</li>
+                <li><strong>Narrativa:</strong> un hilo conductor claro que enganche a la audiencia.</li>
+                <li><strong>Demo en vivo:</strong> se ejecuta sin errores bloqueantes, muestra los chunks/contexto con claridad y se recupera con soltura si algo falla.</li>
+            </ul>
+        </div>
+
+        <div class="eval-area a-git">
+            <h4>🌿 Git <span style="font-weight:600;color:var(--text-lt);font-size:0.9rem;">· equipo</span> <span class="pct-badge">17&nbsp;%</span></h4>
+            <ul>
+                <li><strong>Estructura:</strong> buena modularización de archivos y un repositorio limpio, coherente y lógico.</li>
+                <li><strong>README:</strong> todos los apartados solicitados, bien redactados y fáciles de seguir.</li>
+                <li><strong>Ramas y PRs:</strong> convención de ramas clara, PRs revisadas antes de mergear y <code>main</code> estable al final.</li>
+                <li><strong>Reparto:</strong> las ramas y PRs reflejan una división de trabajo coherente en el equipo.</li>
+                <li><strong>Reproducibilidad:</strong> el proyecto se instala y ejecuta desde cero (clonar, dependencias, <code>.env</code>) sin ayuda extra, y el indexado y la consulta funcionan siguiendo los pasos del README.</li>
+            </ul>
+        </div>
+
+        <div class="eval-area a-equipo">
+            <h4>👥 Trabajo en equipo <span style="font-weight:600;color:var(--text-lt);font-size:0.9rem;">· individual</span> <span class="pct-badge">15&nbsp;%</span></h4>
+            <p style="margin-bottom:0.5rem;">Se valora por persona, a partir del historial de Git:</p>
+            <ul>
+                <li><strong>Volumen y consistencia:</strong> aportación proporcional a tu parte del reparto y repartida en el tiempo, no todo de última hora.</li>
+                <li><strong>Calidad:</strong> mensajes de commit claros y PRs de tamaño manejable, centradas en una tarea.</li>
+                <li><strong>Colaboración:</strong> revisar y comentar PRs de compañeros de forma sustancial y participar en las dudas del equipo.</li>
+            </ul>
+            <div class="warning" style="margin-top:0.75rem;">Si no dejas una presencia y participación <strong>objetivas y evidentes</strong> en el flujo de Git (commits propios, ramas, PRs abiertas y revisiones), esta área puede <strong>no superarse de forma individual</strong>, aunque el proyecto del equipo salga adelante.</div>
+        </div>
+
+        <div class="eval-area a-memoria">
+            <h4>📝 Memoria <span style="font-weight:600;color:var(--text-lt);font-size:0.9rem;">· equipo</span> <span class="pct-badge">10&nbsp;%</span></h4>
+            <ul>
+                <li><strong>Documentación:</strong> corpus, datos, decisiones y resultados clave documentados (chunking, K, proveedor), con reflexión crítica real y no relleno.</li>
+                <li><strong>Orden:</strong> bien organizada, sin errores, con extensión adecuada y fácil de navegar.</li>
+            </ul>
+        </div>
+
+        <div class="eval-area a-extra">
+            <h4>✨ Extras <span class="optional-badge">Opcional</span> <span class="pct-badge bonus">+10&nbsp;%</span></h4>
+            <p style="margin-bottom:0;">Suma si aportáis algo más allá de lo pedido: funcionalidad no solicitada bien integrada, o experimentación documentada más allá de la obligatoria (ver «Experimentos opcionales»).</p>
+        </div>
+
+        <div class="tip">
+            En resumen, un proyecto sólido: <strong>funciona de punta a punta</strong>, se <strong>ancla al corpus y se abstiene cuando toca</strong>, tiene <strong>código modular y limpio</strong>, un <strong>repositorio bien organizado con PRs reales</strong>, una <strong>memoria que explica el porqué</strong> y una <strong>presentación clara con demo en vivo</strong>.
+        </div>
+    </section>
+
+</div><!-- /container -->
+
+<footer>
+    <p>Project Break 1 · RAG Engineering</p>
+    <p>Bootcamp IA Generativa · The Bridge Tech</p>
+</footer>
+
+<script>
+    // Los checklists se pueden tachar al hacer clic
+    document.querySelectorAll('.task-list li').forEach(function (li) {
+        li.addEventListener('click', function () {
+            li.classList.toggle('done');
+        });
+    });
+</script>
+
+</body>
+</html>
