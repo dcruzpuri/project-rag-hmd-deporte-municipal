@@ -21,6 +21,20 @@ Pipeline offline RAG que prepara un índice vectorial listo para retrieval:
   de longitudes min/p25/media/p75/max, dims de embedding, scores mín/media/máx, chunks
   descartados por dedup, tiempo total).
 
+### 1.1 Cómo lanzar todo el pipeline
+
+---  
+
+Se puede lanzar el pipeline completo (`LOAD → INDEX`) desde de directorio raíz del proyecto: `python -m src.pipeline data --recreate-index`
+
+> ◬ Previamente es preciso generar el entorno virtual de Python e instalar `./requirements.txt`.
+
+Realmente admite algunos parámetros por encima de lo indicado en `.env` que he podido preparar:
+```powershell
+python.exe -m src.pipeline [-h] [--chunk-size CHUNK_SIZE] [--chunk-overlap CHUNK_OVERLAP] [--persist-dir PERSIST_DIR] [--collection COLLECTION] [--recreate-index] rutas [rutas ...]
+```
+
+
 ## 2. Módulos
 
 ### `src/load.py` — carga
@@ -48,29 +62,36 @@ Pipeline offline RAG que prepara un índice vectorial listo para retrieval:
 
 ### `src/tsd/tag.py` — etiquetado (LLM)
 - Etiqueta **una vez por fuente** (1 llamada LLM por documento fuente, no por página) y propaga a todos sus documentos.
-- Taxonomía cerrada: `doc_category ∈ {tarifas, normativa, reservas, abonos, instalaciones, agenda}`, `tags` (máx. 6, como `str` porque Chroma no acepta listas) y `relevancia_llm` 0-1.
+- Taxonomía cerrada: `doc_category = {tarifas, normativa, reservas, abonos, instalaciones, agenda}`, `tags` (máx. 6, como `str` porque Chroma no acepta listas) y `relevancia_llm` 0-1.
 - Proveedor configurable (`GEN_PROVIDER`): Ollama / HuggingFace / Google.
 - Robustez: si el LLM devuelve JSON malformado, asigna `doc_category="instalaciones"` por defecto en vez de romper el pipeline.
 
 ### `src/tsd/scoring.py` — scoring semántico
 - `semantic_score = 0.45·relevancia_LLM + 0.20·centralidad + 0.20·(1 − redundancia) + 0.15·autoridad`, recortado a [0,1].
-- `centralidad`: coseno del chunk contra el centroide de todos los embeddings. `redundancia`: coseno máxima con el resto de chunks (diagonal excluida). `autoridad`: reglamento/normativa 1.0, precios/tarifas 0.9, agenda 0.6, resto 0.7.
+- `centralidad`: coseno del chunk contra el "centroide" de todos los embeddings de la colección. 
+- `redundancia`: coseno máxima con el resto de chunks (diagonal excluida). 
+- `autoridad`: reglamento/normativa 1.0, precios/tarifas 0.9, agenda 0.6, resto 0.7.
 
 ### `src/tsd/dedup.py` — deduplicación
-- Greedy por `semantic_score` descendente: descarta un chunk si su coseno con algún chunk ya conservado ≥ `DEDUP_UMBRAL` (0.93 para all-minilm-l6-v2; subir a 0.95 si se dedup demasiado, bajar a 0.90 si queda redundancia).
+- Por `semantic_score` descendente: descarta un chunk si su coseno con algún chunk ya conservado es mayor o igual al `DEDUP_UMBRAL` (0.93 para all-minilm-l6-v2; subir a 0.95 si se dedup demasiado, bajar a 0.90 si queda redundancia).
 
 ### `src/pipeline.py` — orquestador
 - `ejecutar_pipeline(rutas, ...)`: encadena todo y devuelve un dict de métricas: `num_documentos`, `num_chunks_pre_dedup`, `num_chunks_post_dedup`, `chunks_descartados`, `dim_embedding`, `chunk_stats` (min/p25/media/p75/max/cortos), `tiempo_total_s`.
 
 ## 3. Proveedores y configuración (`.env`)
 
+Para configurar un proveedor (EMBEDDINGS, TAGGING o GENERATION) basta con seleccionar uno de los tres para cada caso y tener su sección de modelos alimentada con los seleccionados. 
+
+> `<PROVEEDOR>_TAG_MODEL`: Puede ser rellenado o no, en caso de no serlo asumirá el modelo de generación que esté seleccionado.
+
 | Variable | Default | Uso |
 |---|---|---|
 | `EMBED_PROVIDER` | `ollama` | `ollama` / `huggingface` / `google` |
+| `TAG_PROVIDER` | `ollama` | `ollama` / `huggingface` / `google` |
 | `GEN_PROVIDER` | `ollama` | `ollama` / `huggingface` / `google` |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama local |
-| `EMBED_MODEL` | `locusai/all-minilm-l6-v2` | embedding Ollama |
-| `GEN_MODEL` | `llama3.1` | LLM Ollama |
+| `OLLAMA_EMBED_MODEL` | `locusai/all-minilm-l6-v2` | embedding Ollama |
+| `OLLAMA_GEN_MODEL` | `llama3.1` | LLM Ollama |
 | `HF_EMBED_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | embedding HuggingFace |
 | `HF_GEN_MODEL` | `mistralai/Mistral-7B-v0.1` | LLM HuggingFace |
 | `HF_DEVICE` | `cpu` | `cpu` / `cuda` |
@@ -95,7 +116,7 @@ Pipeline offline RAG que prepara un índice vectorial listo para retrieval:
 | `dedup.py::deduplicar` | — (solo numpy) | chunks + embeddings (requiere scoring previo) |
 | `[retrieval]` (pendiente) | `embeddear_consulta` + `obtener_cliente_chroma` | `config.COLLECTION_NAME` |
 
-Regla de dependencia por `metadata`: **load → tag → scoring → dedup → index**. Cada módulo asume que el anterior corrió:
+Dependencia por `metadata`: **load → tag → scoring → dedup → index**. Cada módulo asume que el anterior corrió:
 - `tag.py` escribe `doc_category`, `tags`, `relevancia_llm` (por fuente).
 - `chunk.py` los propaga a cada chunk junto con `chunk_index`.
 - `scoring.py` lee `relevancia_llm` y escribe `semantic_score`.
@@ -117,6 +138,8 @@ Regla de dependencia por `metadata`: **load → tag → scoring → dedup → in
 El dict devuelto por `ejecutar_pipeline` incluye las mismas métricas para eval.
 
 ## 6. Text splitting: evaluación (5 niveles)
+
+He creado un ANEXO para saber cómo modificar los niveles de chunking en el proyecto. Para más información [consultar ANEXO](./ANEXO_CHUNKING.md).
 
 | Nivel | Método | Estado |
 |---|---|---|
