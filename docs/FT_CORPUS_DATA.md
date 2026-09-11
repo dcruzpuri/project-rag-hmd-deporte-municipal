@@ -1,0 +1,134 @@
+# FT_CORPUS_DATA — Pipeline RAG de deporte municipal
+
+## 1. Qué hace el programa (estado actual)
+
+Pipeline offline RAG que prepara un índice vectorial listo para retrieval:
+
+    LOAD → CLEAN → TAG → CHUNK → EMBED → SCORING → DEDUP → INDEX
+
+- **Núcleo clásico** (`load.py`, `clean.py`, `chunk.py`, `embed.py`, `index.py`):
+  carga PDF/TXT/MD/CSV, normaliza el texto, trocea (Level 2 recursive), genera
+  embeddings multi-proveedor y los guarda en ChromaDB (métrica coseno).
+- **TSD** (`tsd/tag.py`, `tsd/scoring.py`, `tsd/dedup.py`): etiquetado semántico con LLM
+  (taxonomía cerrada), scoring de chunks (relevancia + centralidad + redundancia +
+  autoridad) y deduplicación greedy por similitud coseno. El objetivo es que al índice
+  entren solo chunks bien puntuados y no redundantes, para que el retrieval sea más
+  preciso y la respuesta más fiable.
+- **Multi-proveedor**: embeddings y LLM pueden salir de **Ollama** (offline, sin coste),
+  **HuggingFace** (sentence-transformers + transformers) o **Google** (Gemini REST).
+  Se cambia por variable de entorno (`EMBED_PROVIDER`, `GEN_PROVIDER`), sin tocar código.
+- **Consola**: cada fase loguea su progreso y métricas (documentos, chunks, distribución
+  de longitudes min/p25/media/p75/max, dims de embedding, scores mín/media/máx, chunks
+  descartados por dedup, tiempo total).
+
+## 2. Módulos
+
+### `src/load.py` — carga
+- Loaders por extensión: `.pdf` (PyPDFLoader), `.txt`/`.md` (TextLoader), `.csv` (una fila = un documento `k: v | k: v`).
+- `cargar_archivos(rutas)`: archivo o carpeta (recursiva); devuelve `list[Document]` con `metadata.source` siempre poblado.
+
+### `src/clean.py` — limpieza
+- Normaliza antes de trocear: saltos de línea dobles, espacios sobrantes, líneas vacías, BOM y caracteres de control. No toca metadata.
+
+### `src/chunk.py` — troceado (Level 2)
+- `RecursiveCharacterTextSplitter` con separadores `["\n\n", "\n", ". ", " ", ""]`: primero límites semánticos (párrafo → frase), luego espacios.
+- `trocear(documentos, chunk_size, chunk_overlap)`: acepta `str` (tests/scripts). Propaga la metadata del documento padre a cada chunk (`chunk_index` secuencial **por documento**). Es el **puente TAG→CHUNK**: `doc_category`, `tags` y `relevancia_llm` pasan automáticamente a los chunks.
+- `chunk_index` es 0..n por fuente, no global (el id global lo asigna `pipeline.py`, §4).
+
+### `src/embed.py` — vectores (multi-proveedor)
+- `embeddear(textos)` según `EMBED_PROVIDER`:
+  - **ollama**: endpoint batch `/api/embed` por lotes de `EMBED_BATCH_SIZE` (timeout 120 s).
+  - **huggingface**: `SentenceTransformer` (carga perezosa + caché), `normalize_embeddings=True` (coherente con la métrica coseno).
+  - **google**: REST `batchEmbedContents` (requiere `GOOGLE_API_KEY`).
+- `embeddear_consulta(pregunta)`: fase online. **Condición RAG ineludible**: índice y consulta usan el mismo modelo.
+- `exportar_json(chunks, ruta)`: persiste `text+metadata+embedding` para inspección/debug (`output/embeddings.json`).
+
+### `src/index.py` — ChromaDB
+- Cliente persistente, colección con métrica coseno. `indexar(...)` sanea metadatos (Chroma no acepta `None` ni listas), inserta y verifica `count() == len(ids)`. Soporta `recreate=True`.
+
+### `src/tsd/tag.py` — etiquetado (LLM)
+- Etiqueta **una vez por fuente** (1 llamada LLM por documento fuente, no por página) y propaga a todos sus documentos.
+- Taxonomía cerrada: `doc_category ∈ {tarifas, normativa, reservas, abonos, instalaciones, agenda}`, `tags` (máx. 6, como `str` porque Chroma no acepta listas) y `relevancia_llm` 0-1.
+- Proveedor configurable (`GEN_PROVIDER`): Ollama / HuggingFace / Google.
+- Robustez: si el LLM devuelve JSON malformado, asigna `doc_category="instalaciones"` por defecto en vez de romper el pipeline.
+
+### `src/tsd/scoring.py` — scoring semántico
+- `semantic_score = 0.45·relevancia_LLM + 0.20·centralidad + 0.20·(1 − redundancia) + 0.15·autoridad`, recortado a [0,1].
+- `centralidad`: coseno del chunk contra el centroide de todos los embeddings. `redundancia`: coseno máxima con el resto de chunks (diagonal excluida). `autoridad`: reglamento/normativa 1.0, precios/tarifas 0.9, agenda 0.6, resto 0.7.
+
+### `src/tsd/dedup.py` — deduplicación
+- Greedy por `semantic_score` descendente: descarta un chunk si su coseno con algún chunk ya conservado ≥ `DEDUP_UMBRAL` (0.93 para all-minilm-l6-v2; subir a 0.95 si se dedup demasiado, bajar a 0.90 si queda redundancia).
+
+### `src/pipeline.py` — orquestador
+- `ejecutar_pipeline(rutas, ...)`: encadena todo y devuelve un dict de métricas: `num_documentos`, `num_chunks_pre_dedup`, `num_chunks_post_dedup`, `chunks_descartados`, `dim_embedding`, `chunk_stats` (min/p25/media/p75/max/cortos), `tiempo_total_s`.
+
+## 3. Proveedores y configuración (`.env`)
+
+| Variable | Default | Uso |
+|---|---|---|
+| `EMBED_PROVIDER` | `ollama` | `ollama` / `huggingface` / `google` |
+| `GEN_PROVIDER` | `ollama` | `ollama` / `huggingface` / `google` |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama local |
+| `EMBED_MODEL` | `locusai/all-minilm-l6-v2` | embedding Ollama |
+| `GEN_MODEL` | `llama3.1` | LLM Ollama |
+| `HF_EMBED_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | embedding HuggingFace |
+| `HF_GEN_MODEL` | `mistralai/Mistral-7B-v0.1` | LLM HuggingFace |
+| `HF_DEVICE` | `cpu` | `cpu` / `cuda` |
+| `HF_TOKEN` | — | solo modelos gated |
+| `GOOGLE_API_KEY` | — | embeddings/LLM Google |
+| `GOOGLE_EMBED_MODEL` | `gemini-embedding-2` | embedding Google |
+| `GOOGLE_GEN_MODEL` | `gemini-2.0-flash` | LLM Google |
+| `CHUNK_SIZE` / `CHUNK_OVERLAP` | `1000` / `100` | troceado |
+| `TOP_K` / `MAX_CHUNKS` | `3` / `500` | retrieval |
+| `EMBED_BATCH_SIZE` | `30` | lotes de embedding |
+| `TAG_SCORING_DEDUP` | `true` | activa/desactiva TSD |
+| `DEDUP_UMBRAL` | `0.93` | umbral de dedup |
+| `CHROMA_DIR` / `COLLECTION_NAME` | `./output/chroma` / `deporte_municipal` | índice |
+
+## 4. Flujo de invocación (quién llama a quién)
+
+| Invocador | Funciones que llama | Con qué |
+|---|---|---|
+| `pipeline.py::ejecutar_pipeline` | `cargar_archivos` → `limpiar` → `etiquetar` → `trocear` → `embeddear` → `puntuar` → `deduplicar` → `indexar` | constantes de `config.py` por omisión |
+| `tag.py::etiquetar` | chat del proveedor (Ollama / HF / Google) | documentos limpios con `metadata.source` |
+| `scoring.py::puntuar` | — (solo numpy) | chunks + embeddings (requiere tag previo) |
+| `dedup.py::deduplicar` | — (solo numpy) | chunks + embeddings (requiere scoring previo) |
+| `[retrieval]` (pendiente) | `embeddear_consulta` + `obtener_cliente_chroma` | `config.COLLECTION_NAME` |
+
+Regla de dependencia por `metadata`: **load → tag → scoring → dedup → index**. Cada módulo asume que el anterior corrió:
+- `tag.py` escribe `doc_category`, `tags`, `relevancia_llm` (por fuente).
+- `chunk.py` los propaga a cada chunk junto con `chunk_index`.
+- `scoring.py` lee `relevancia_llm` y escribe `semantic_score`.
+- `dedup.py` lee `semantic_score`.
+- `index.py` sanea todo (Chroma no acepta `None` ni listas).
+
+## 5. Métricas por consola (en tiempo de ejecución)
+
+- `[LOAD]` nº documentos cargados.
+- `[CLEAN]` nº documentos normalizados.
+- `[TAG]` por fuente: categoría + relevancia; al final: nº fuentes, tiempo y proveedor.
+- `[CHUNK]` nº chunks y distribución de longitudes: min / p25 / media / p75 / max + nº de chunks cortos (<50 chars).
+- `[EMBED]` nº vectores y dimensión.
+- `[SCORE]` scores mín / media / máx + mejor chunk.
+- `[DEDUP]` umbral usado y nº/porcentaje de chunks descartados.
+- `[INDEX]` nº vectores en la colección.
+- `[FIN]` tiempo total.
+
+El dict devuelto por `ejecutar_pipeline` incluye las mismas métricas para eval.
+
+## 6. Text splitting: evaluación (5 niveles)
+
+| Nivel | Método | Estado |
+|---|---|---|
+| 1 | Character (fijo) | No usado: rígido, ignora la estructura. |
+| 2 | Recursive character | **Actual**. Separadores párrafo → frase → espacio → letra; recomendado como punto de partida. |
+| 3 | Document-specific | Oportunidad futura: `MarkdownTextSplitter` para `.md`; tablas de PDF con Unstructured si el corpus gana tablas. |
+| 4 | Semantic (breakpoints por embeddings) | Caro. Solo si el eval de retrieval muestra que el Level 2 no basta. |
+| 5 | Agentic (LLM decide) | No recomendado: lento y caro. |
+
+Decisión: mantener Level 2 y validarlo con `scripts/eval_coherencia_chunks.py` ("Chunking Commandment": el objetivo es que el dato se recupere con valor).
+
+## 7. Fase online (retrieval) — pendiente
+
+- `embeddear_consulta` + `obtener_cliente_chroma` + filtro por `doc_category` (clasificación de intención por palabras clave) + rerank por `semantic_score`.
+- Con filtro + rerank, `TOP_K` podría subir de 3 a 5 sin perder precisión.

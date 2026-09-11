@@ -35,11 +35,11 @@ def main():
     ) * 5
 
     chunks = trocear(texto, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
-    textos = [c.page_content if hasattr(c, 'page_content') else c for c in chunks]
+    textos = [c.page_content for c in chunks]
 
     print(f"Modelo: {EMBED_MODEL}")
     print(f"Chunks: {len(textos)}")
-    print("Embedding…")
+    print("Embedding...")
     vectors = embeddear(textos)
 
     # Similitud entre adyacentes vs. pares aleatorios
@@ -58,15 +58,15 @@ def main():
     margen = mean_ad - mean_al
 
     print(f"\n{'='*50}")
-    print(f"  COHERENCIA SEMÁNTICA DE CHUNKS")
+    print("  COHERENCIA SEMÁNTICA DE CHUNKS")
     print(f"{'='*50}")
     print(f"  Sim. media adyacentes:  {mean_ad:.4f}")
     print(f"  Sim. media aleatorios:  {mean_al:.4f}")
     print(f"  Margen (ady − aleat):   {margen:+.4f}")
     print(f"{'='*50}")
-    print(f"  Interpretación: un margen > 0.05 indica que el overlap")
-    print(f"  mantiene coherencia temática entre chunks adyacentes.")
-    print(f"  Un margen similar a 0 sugiere cortes arbitrarios (semántica comprometida o partida).")
+    print("  Interpretación: un margen > 0.05 indica que el overlap")
+    print("  mantiene coherencia temática entre chunks adyacentes.")
+    print("  Un margen similar a 0 sugiere cortes arbitrarios (semántica comprometida o partida).")
 
 if __name__ == "__main__":
     main()

@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Carpetas y archivos del proyecto
+output/
+ENUNCIADO.md
+GUIA.html
+HIGHLIGHTS_CORPUS_DATA.md
+.gitignore

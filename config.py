@@ -1,55 +1,93 @@
 """
-project_break_rag/config.py
-Parámetros de todo el pipeline para ajustar aquí y no tocar módulos.
+config.py
+Todas las constantes del proyecto. Se leen de variables de entorno (.env)
+con valores por defecto: se cambia de proveedor sin tocar el código.
+
+Hay 3 interruptores INDEPENDIENTES (cada uno con su proveedor y su modelo):
+  - EMBED: embeddings (fase offline + consulta)
+  - GEN:   generación (fase online, futuro generate.py)
+  - TAG:   etiquetado (fase offline; por defecto sigue a GEN)
+Cada proveedor (ollama / huggingface / google) tiene su variable de modelo
+(OLLAMA_* / HF_* / GOOGLE_*); EMBED_MODEL, GEN_MODEL y TAG_MODEL se
+resuelven automáticamente según el proveedor de cada interruptor.
 """
-from pathlib import Path
+import os
 
-#  Rutas 
-BASE_DIR: Path = Path(__file__).resolve().parent
-DATA_DIR: Path = BASE_DIR / "data"
-OUTPUT_DIR: Path = BASE_DIR / "output"
-LOG_DIR: Path = BASE_DIR / "logs"
-
-#  Chunking 
-CHUNK_SIZE: int =  1000       # caracteres por chunk (700-1000 equilibrio)
-CHUNK_OVERLAP: int = 100     # solapamiento (10-20% del chunking)
+# Carga .env si existe (python-dotenv es opcional: si no está instalado, se ignora)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 
-#  Scoring, deduplicación y etiquetado
-TAG_SCORING_DEDUP: bool = True  # True: etiquetar → puntuar → deduplicar; False: solo etiquetar
+# Interruptor 1: EMBEDDINGS (offline + consulta)
+EMBED_PROVIDER: str = os.getenv("EMBED_PROVIDER", "ollama")   # "ollama" | "huggingface" | "google"
 
-#  Embeddings 
-EMBED_PROVIDER: str = "ollama"                 # "ollama" o "google
-EMBED_MODEL: str = "locusai/all-minilm-l6-v2"  # "locusai/all-minilm-l6-v2" para Ollama / "gemini-embedding-2" para Google Gemini
-EMBED_DIM: int = 384                           # EMBED_DIM: int = 384 para "locusai/all-minilm-l6-v2" para Ollama / 3072 si usas Google Gemini
-EMBED_BATCH_SIZE: int = 30                     # Ollama en local va bien con lotes menores
-EXPORT_EMBEDDINGS: bool = True                 # True: exporta output/embeddings.json para inspección
+OLLAMA_EMBED_MODEL: str = os.getenv("OLLAMA_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+HF_EMBED_MODEL: str = os.getenv("HF_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+GOOGLE_EMBED_MODEL: str = os.getenv("GOOGLE_EMBED_MODEL", "gemini-embedding-2")
 
-#  Generación (LLM) 
-GEN_PROVIDER: str = "ollama"                   # "ollama" / "google" / "huggingface" 
-GEN_MODEL: str = "llama4:scout"                # llama3.1 con Ollama local / gemini-2.0-flash con Google Gemini
-"""
-    De la misma manera que los modelos de generación, para las operaciones de TAGGING y SCORING 
-    está permitido utilizar otro modelo, incluso otro proveedor, que pudiera ser más adecuado en coste, evaluación,
-    incluso pudiendo también hacerlo mediante modelo local (ollama) 
-"""
-TAG_PROVIDER: str = GEN_PROVIDER               # "ollama" / "google" / "huggingface" - aunque puede asumirse el mismo que GEN_PROVIDER
-TAG_MODEL: str = GEN_PROVIDER                  # llama3.1 (ollama) / gemini-2.0-flash (google) / 
-LLM_TEMPERATURE: float = 0.5
-LLM_TIMEOUT: int = 60
+# Interruptor 2: GENERACIÓN (fase online)
+GEN_PROVIDER: str = os.getenv("GEN_PROVIDER", "ollama")      # "ollama" | "huggingface" | "google"
+OLLAMA_GEN_MODEL: str = os.getenv("OLLAMA_GEN_MODEL", "llama3.2")  # llama3.2, llama4:scout (ollama) / gemini-2.0-flash (google)
+HF_GEN_MODEL: str = os.getenv("HF_GEN_MODEL", "mistralai/Mistral-7B-v0.1")
+GOOGLE_GEN_MODEL: str = os.getenv("GOOGLE_GEN_MODEL", "gemini-2.0-flash")
 
-#  Ollama
-OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"  # servidor local ollama
 
-#  ChromaDB 
-CHROMA_DIR: str = str(OUTPUT_DIR / "chroma_db")      # carpeta persistente
-COLLECTION_NAME: str = "deporte_municipal"         # una única colección por corpus
-COSINE_SPACE: str = "cosine"               # métrica de distancia
+# Interruptor 3: TAGGING (offline; por defecto sigue a GEN)
+# Si en .env se deja vacío, hereda el proveedor de GEN.
+TAG_PROVIDER: str = os.getenv("TAG_PROVIDER") or GEN_PROVIDER
+# Modelos de tagging por proveedor: si en .env se dejan vacíos, heredan los de GEN.
+# El patrón `os.getenv(...) or <parámetro>` hace que un valor vacío también herede.
+OLLAMA_TAG_MODEL: str = os.getenv("OLLAMA_TAG_MODEL") or OLLAMA_GEN_MODEL
+HF_TAG_MODEL: str = os.getenv("HF_TAG_MODEL") or HF_GEN_MODEL
+GOOGLE_TAG_MODEL: str = os.getenv("GOOGLE_TAG_MODEL") or GOOGLE_GEN_MODEL
 
-#  Retrieval 
-TOP_K: int = 3               # chunks a recuperar por consulta 
-MAX_CHUNKS: int = 500        # límite de chunks en el índice
 
-#  Logging 
-LOG_FILE: Path = LOG_DIR / "rag.log"
-LOG_LEVEL: str = "INFO"
+def _resolver(provider: str, ollama_model: str, hf_model: str, google_model: str, switch: str) -> str:
+    """Devuelve el modelo que usa cada interruptor según su proveedor."""
+    modelo = {"ollama": ollama_model, "huggingface": hf_model, "google": google_model}.get(provider)
+    if modelo is None:
+        raise ValueError(f"{switch} no soportado: {provider!r}")
+    return modelo
+
+
+# Modelo efectivo de cada interruptor (el que usan embed.py, tag.py, futuro generate.py)
+EMBED_MODEL: str = _resolver(EMBED_PROVIDER, OLLAMA_EMBED_MODEL, HF_EMBED_MODEL, GOOGLE_EMBED_MODEL, "EMBED_PROVIDER")
+GEN_MODEL: str = _resolver(GEN_PROVIDER, OLLAMA_GEN_MODEL, HF_GEN_MODEL, GOOGLE_GEN_MODEL, "GEN_PROVIDER")
+TAG_MODEL: str = _resolver(TAG_PROVIDER, OLLAMA_TAG_MODEL, HF_TAG_MODEL, GOOGLE_TAG_MODEL, "TAG_PROVIDER")
+
+# --- Ollama (offline, compartido por los 3 interruptores) ---
+OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+
+# --- HuggingFace (online, compartido) ---
+HF_DEVICE: str = os.getenv("HF_DEVICE", "cpu")   # "cpu" | "cuda"
+HF_TOKEN: str | None = os.getenv("HF_TOKEN") or None  # solo modelos gated (aquellos que requieren aceptar la licencia y un token de acceso)
+
+# --- Google (online, compartido) ---
+GOOGLE_API_KEY: str | None = os.getenv("GOOGLE_API_KEY") or None
+
+# --- Chunking ---
+CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "1000"))
+CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "150"))
+
+
+# --- Embeddings ---
+EMBED_DIM: int = int(os.getenv("EMBED_DIM", "384"))  # 384 (all-MiniLM) / 3072 (gemini)
+EMBED_BATCH_SIZE: int = int(os.getenv("EMBED_BATCH_SIZE", "30"))
+EXPORT_EMBEDDINGS: bool = os.getenv("EXPORT_EMBEDDINGS", "true").lower() == "true"
+
+# --- TSD: tagging + scoring + dedup ---
+TAG_SCORING_DEDUP: bool = os.getenv("TAG_SCORING_DEDUP", "true").lower() == "true"
+DEDUP_UMBRAL: float = float(os.getenv("DEDUP_UMBRAL", "0.93"))  # punto de partida para all-minilm-l6-v2
+
+# --- ChromaDB ---
+CHROMA_DIR: str = os.getenv("CHROMA_DIR", "./output/chroma_db")
+COLLECTION_NAME: str = os.getenv("COLLECTION_NAME", "deporte_municipal")
+COSINE_SPACE: str = "cosine"
+
+
+
+
+

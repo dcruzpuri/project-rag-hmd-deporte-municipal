@@ -1,27 +1,31 @@
 # Loaders de LangChain (PDF, TXT, MD, CSV)
-langchain-community>=0.2.0
-langchain-core>=
-langchain-huggingface>=
-pypdf>=4.0.0
+langchain-community>=0.4.2
+langchain-core>=1.6.2
+langchain-huggingface>=1.2.2
+pypdf>=6.18.0
 
 # Text splitter (chunking) de LangChain
-langchain-text-splitters>=0.2.0
+langchain-text-splitters>=1.1.2
 
 # Base vectorial local
-chromadb>=0.5.0
+chromadb>=1.5.9
 
 # Ollama local (embeddings + LLM en local)
-requests>=2.31.0
+requests>=2.34.2
 
 # Google Gemini (alternativa embeddings + LLM)
-# google-genai>=1.0.0
+google-genai>=2.23.0
 
+# HuggingFace
+sentence-transformers>=6.0.1
+transformers>=5.17.0
 
 # Streamlit (UI)
-streamlit>=1.35.0
+streamlit>=1.63.0
 
 
 # Utilidades
-python-dotenv>=1.0.0   
-pandas>=2.0.0          # tabla de métricas en Streamlit
-numpy>=1.24.0          # lo usa scripts/test_embeddings
+python-dotenv>=1.2.3   
+pandas>=3.0.5          # tabla de métricas en Streamlit
+numpy>=2.5.3          # lo usa scripts/test_embeddings
+torch>=2.11.0

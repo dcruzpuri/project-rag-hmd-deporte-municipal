@@ -100,7 +100,7 @@ class TestChunkOverlap:
             overlap_chars = sum(1 for ch in tail if ch in siguiente[:CHUNK_OVERLAP * 2])
             ratio_overlap = overlap_chars / max(len(tail), 1)
             assert ratio_overlap > 0.4, \
-                f"Chunk {i}→{i+1}: overlap ratio {ratio_overlap:.2f} < 0.4"
+                f"Chunk {i}->{i+1}: overlap ratio {ratio_overlap:.2f} < 0.4"
 
     def test_overlap_no_es_cero(self, texto_largo):
         """Si overlap > 0, los chunks no deben ser independientes."""
@@ -160,7 +160,7 @@ class TestChunkPreservacion:
         perdidas = [w for w in palabras_originales if w not in concatenado]
 
         assert len(perdidas) == 0, \
-            f"Palabras perdidas en chunking: {perdidas[:10]}… ({len(perdidas)} total)"
+                f"Palabras perdidas en chunking: {perdidas[:10]}... ({len(perdidas)} total)"
 
     def test_numeros_preservados(self, texto_con_separadores):
         """Los precios, horarios y porcentajes no deben romperse."""

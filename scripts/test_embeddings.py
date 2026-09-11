@@ -37,7 +37,7 @@ def embedder(model: str, textos: list[str]) -> list[list[float]]:
 
 
 def similitud_coseno(a: list[float], b: list[float]) -> float:
-    """sim = cos(θ). 1.0 = mismo significado, 0 = ortogonal."""
+    """sim = cos(). donde cuanto más se aproxima a 1.0 = mismo significado. """
     va, vb = np.array(a), np.array(b)
     return float(np.dot(va, vb) / (np.linalg.norm(va) * np.linalg.norm(vb)))
 
@@ -62,16 +62,16 @@ def ejecutar_test(model: str) -> None:
         relacion = "relacionadas" if (i, j) == (0, 1) else "irrelevantes"
         print(f"  {par:<6} {relacion:<18} {sim:>10.4f}")
 
-    #  Veredicto 
+    #  Veredicto: A-B/A-C son paráfrasis (relevantes), D es la irrelevante
     sim_relevante  = similitud_coseno(vectores[0], vectores[1])
-    sim_irrelevante = similitud_coseno(vectores[0], vectores[2])
+    sim_irrelevante = similitud_coseno(vectores[0], vectores[3])
     margen = sim_relevante - sim_irrelevante
 
     print(f"\n  Margen (relevante − irrelevante): {margen:.4f}")
     if margen > 0.1:
-        print("  ✓ Buen separador para este dominio.")
+        print("  [✓] Buen separador para este dominio.")
     else:
-        print("  ✕  Separación débil; el modelo puede no distinguir bien.")
+        print("  [◬] Separacion debil; el modelo puede no distinguir bien.")
     print()
 
 
@@ -80,5 +80,5 @@ if __name__ == "__main__":
         try:
             ejecutar_test(modelo)
         except Exception as e:
-            print(f"\n  ✕ Error con {modelo}: {e}\n")
-            print("    → Sería conveniente comprobar si el modelo está descargado y el servidor Ollama está funcionando/respondiendo a las peticiones.\n")
+            print(f"\n  [◬] Error con {modelo}: {e}\n")
+            print("    -> Seria conveniente comprobar si el modelo esta descargado y el servidor Ollama esta funcionando/respondiendo a las peticiones.\n")

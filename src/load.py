@@ -17,8 +17,30 @@ def _load_pdf(path: str) -> list[Document]:
     return loader.load()
 
 
+# En orden de preferencia. cp1252 mapea mejor que latin-1 los guiones y
+# comillas tipicas de Windows (0x95, 0x96, 0x92...), pero algunos bytes
+# (0x81, 0x8D, 0x8F, 0x90, 0x9D) no existen en cp1252: ahí entra latin-1.
+_CODIFICACIONES: tuple[str, ...] = ("utf-8-sig", "cp1252", "latin-1")
+
+
+def _detectar_encoding(path: str) -> str:
+    """
+    Detecta la encoding de un archivo probando en orden:
+    utf-8-sig (maneja BOM), cp1252 (Windows), latin-1 (nunca falla).
+    """
+    raw = Path(path).read_bytes()
+    for enc in _CODIFICACIONES:
+        try:
+            raw.decode(enc)
+            return enc
+        except UnicodeDecodeError:
+            continue
+    # Unreachable: latin-1 decodifica cualquier byte.
+    return "latin-1"
+
+
 def _load_text(path: str) -> list[Document]:
-    loader = TextLoader(path, encoding="utf-8")
+    loader = TextLoader(path, encoding=_detectar_encoding(path))
     return loader.load()
 
 
@@ -28,7 +50,7 @@ def _load_csv(path: str) -> list[Document]:
     Convierte cada fila en un texto plano legible.
     """
     docs: list[Document] = []
-    with open(path, newline="", encoding="utf-8") as f:
+    with open(path, newline="", encoding=_detectar_encoding(path)) as f:
         reader = csv.DictReader(f)
         for i, row in enumerate(reader):
             text = " | ".join(f"{k}: {v}" for k, v in row.items() if v)
@@ -65,10 +87,13 @@ def cargar_archivos(rutas: list[str] | str) -> list[Document]:
     for ruta in rutas:
         p = Path(ruta)
         if p.is_dir():
-            archivos.extend(
-                str(f) for f in sorted(p.rglob("*"))
-                if f.is_file() and f.suffix.lower() in _LOADERS
-            )
+            todos = sorted(p.rglob("*"))
+            archivos.extend(str(f) for f in todos
+                    if f.is_file() and f.suffix.lower() in _LOADERS)
+            ignorados = [f.name for f in todos
+                 if f.is_file() and f.suffix.lower() not in _LOADERS]
+            if ignorados:
+                print(f"[LOAD] ignorados (extensión no soportada): {ignorados}")
         elif p.is_file() and p.suffix.lower() in _LOADERS:
             archivos.append(str(p))
 
