@@ -27,7 +27,7 @@ Pipeline offline RAG que prepara un índice vectorial listo para retrieval:
 
 Se puede lanzar el pipeline completo (`LOAD → INDEX`) desde de directorio raíz del proyecto: `python -m src.pipeline data --recreate-index`
 
-> ◬ Previamente es preciso generar el entorno virtual de Python e instalar `./requirements.txt`.
+> ◬ Previamente es preciso generar el entorno virtual de Python e instalar `pip install -r ./requirements.txt`.
 
 Realmente admite algunos parámetros por encima de lo indicado en `.env` que he podido preparar:
 ```powershell
@@ -71,9 +71,11 @@ python.exe -m src.pipeline [-h] [--chunk-size CHUNK_SIZE] [--chunk-overlap CHUNK
 - `centralidad`: coseno del chunk contra el "centroide" de todos los embeddings de la colección. 
 - `redundancia`: coseno máxima con el resto de chunks (diagonal excluida). 
 - `autoridad`: reglamento/normativa 1.0, precios/tarifas 0.9, agenda 0.6, resto 0.7.
+- Usa **FAISS** (`IndexFlatIP`, búsqueda k=2) para la redundancia en vez de materializar `E @ E.T`: memoria O(n·d) en vez de O(n²) (~1,3 GB en vez de ~68 GB en la escala real), que era la causa del OOM en la fase `[TSD]`.
 
 ### `src/tsd/dedup.py` — deduplicación
 - Por `semantic_score` descendente: descarta un chunk si su coseno con algún chunk ya conservado es mayor o igual al `DEDUP_UMBRAL` (0.93 para all-minilm-l6-v2; subir a 0.95 si se dedup demasiado, bajar a 0.90 si queda redundancia).
+- Implementación incremental con **FAISS** (`IndexFlatIP`): cada candidato se busca contra los ya conservados (k=1), en vez de reconstruir la matriz completa de similitud (misma OOM que scoring). Semántica idéntica a la matriz; tiempo acotado por el nº de chunks conservados.
 
 ### `src/pipeline.py` — orquestador
 - `ejecutar_pipeline(rutas, ...)`: encadena todo y devuelve un dict de métricas: `num_documentos`, `num_chunks_pre_dedup`, `num_chunks_post_dedup`, `chunks_descartados`, `dim_embedding`, `chunk_stats` (min/p25/media/p75/max/cortos), `tiempo_total_s`.
@@ -112,8 +114,8 @@ Para configurar un proveedor (EMBEDDINGS, TAGGING o GENERATION) basta con selecc
 |---|---|---|
 | `pipeline.py::ejecutar_pipeline` | `cargar_archivos` → `limpiar` → `etiquetar` → `trocear` → `embeddear` → `puntuar` → `deduplicar` → `indexar` | constantes de `config.py` por omisión |
 | `tag.py::etiquetar` | chat del proveedor (Ollama / HF / Google) | documentos limpios con `metadata.source` |
-| `scoring.py::puntuar` | — (solo numpy) | chunks + embeddings (requiere tag previo) |
-| `dedup.py::deduplicar` | — (solo numpy) | chunks + embeddings (requiere scoring previo) |
+| `scoring.py::puntuar` | FAISS (`IndexFlatIP`) + numpy | chunks + embeddings (requiere tag previo) |
+| `dedup.py::deduplicar` | FAISS (`IndexFlatIP`) + numpy | chunks + embeddings (requiere scoring previo) |
 | `[retrieval]` (pendiente) | `embeddear_consulta` + `obtener_cliente_chroma` | `config.COLLECTION_NAME` |
 
 Dependencia por `metadata`: **load → tag → scoring → dedup → index**. Cada módulo asume que el anterior corrió:
