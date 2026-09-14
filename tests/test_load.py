@@ -16,7 +16,7 @@ from src.load import _detectar_encoding, _load_csv
 
 @pytest.fixture
 def tmp_csv(tmp_path: Path) -> Callable[[bytes], str]:
-    """Devuelve un helper para crear CSVs con los bytes dados."""
+    """Devuelve ayudante para crear CSVs con los bytes dados."""
 
     def _h(data: bytes, name: str = "fixture.csv") -> str:
         p = tmp_path / name
@@ -79,4 +79,5 @@ class TestLoadText:
         ruta = tmp_csv("Piscina: 5 €/día; abono: 40 €.\n".encode("cp1252"), name="fixture.txt")
         docs = _load_text(ruta)
         assert len(docs) == 1
-        assert "Piscina" in docs[0].page_content
+        assert "Piscina" in docs[0].page_content 
+        

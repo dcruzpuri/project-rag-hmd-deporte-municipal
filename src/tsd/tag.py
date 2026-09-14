@@ -8,6 +8,7 @@ Se etiqueta una vez por fuente y se propaga a todos sus documentos.
 """
 import json
 import time
+from typing import Any
 
 import requests
 from langchain_core.documents import Document
@@ -85,7 +86,7 @@ def _chat_google(prompt: str, model: str) -> str:
 _CHAT = {"ollama": _chat_ollama, "huggingface": _chat_huggingface, "google": _chat_google}
 
 
-def _parse_json(texto: str) -> dict:
+def _parse_json(texto: str) -> dict[str, Any]:
     """Extrae el JSON de la respuesta del LLM (tolera bloques ```json y prosa)."""
     inicio, fin = texto.find("{"), texto.rfind("}")
     if inicio == -1 or fin <= inicio:

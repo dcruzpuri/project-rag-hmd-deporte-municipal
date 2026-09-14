@@ -1,45 +1,54 @@
 """
 src/csv_advisor.py
+Capa de clasificación + política para CSV.
 
-Advisor de CSV (datos abiertos). Evalúa un archivo CSV **a partir de su
-esquema real** y deriva su plan de carga, sin mapeo manual por nombre de
-archivo. Un CSV nuevo (fuente desconocida) se evalúa, se adapta a un
-tratamiento adecuado y se emite su plan para que sea confirmado.
+El corpus trae CSVs muy heterogéneos (entidades con ID estable, tablas de
+hechos repetitivas, ficheros textuales): tratarlos todos como "una fila =
+un documento" fuerza a todos el mismo chunking y la misma deduplicación
+semántica. Este módulo decide el tratamiento ANTES de trocear y deduplicar:
 
-Estrategias:
-  - ``entity`` : catálogo. Una fila por entidad, identificada por una columna ID
-                 (p. ej. MXASSETNUM). Se aplica dedup exacta por ese ID.
-  - ``grupos`` : agregable. Se agrupan las filas por una combinación de claves
-                 lógicas y se conserva el desglose dentro (p. ej. abonos y
-                 descuentos). Se aplica dedup exacta por clave de grupo.
-  - ``fila``   : hecho ancho. Una fila por registro (``campo: valor``). Dedup
-                 exacta por contenido de fila.
+    LOAD -> CSV_ADVISOR (perfil estructural) -> [CSV_TRANSFORM]
+         -> CLEAN -> CHUNK -> EMBED -> SCORING/DEDUP (por dedup_policy) -> INDEX
 
-La detección es heurística (esquema + valores). Puede fijarse un plan manual
-como override para reproducir un tratamiento confirmado.
+Dos niveles de decisión (lo barato primero, sin embeddings nunca):
+  1. `match_known_source`: fuente conocida de datos.madrid.es por `source`
+     (receta fija; valida que las columnas esperadas siguen presentes).
+  2. `infer_csv_kind`: heurística sobre el perfil estructural (cardinalidades,
+     densidad numérica, repetición, columnas ID/medida/temporal/narrativa).
+
+Un CSV nuevo y desconocido cae al conservador `unknown_csv` / `exact_only`:
+no rompe nada y queda registrado para revisar.
 """
 
 from __future__ import annotations
 
 import csv
-import dataclasses
 import io
-import re
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Utilidades de lectura (compartidas con load.py)
+# Lectura robusta (compartida con load.py): encoding + delimitador
 # ---------------------------------------------------------------------------
 
-# En orden de preferencia. cp1252 mapea mejor que latin-1 los guiones y
-# comillas típicas de Windows (0x95, 0x96, 0x92...), pero algunos bytes
-# (0x81, 0x8D, 0x8F, 0x90, 0x9D) no existen en cp1252: ahí entra latin-1.
 _CODIFICACIONES: tuple[str, ...] = ("utf-8-sig", "cp1252", "latin-1")
+_DELIMITADORES: tuple[str, ...] = (";", ",", "\t")
+
+# Detección por nombre de columna (heuristicas del enunciado, no del fichero).
+_ID_TOKENS: tuple[str, ...] = ("assetnum", "asset", "pk", "codigo", "id")
+_MEDIDA_TOKENS: tuple[str, ...] = (
+    "abonado", "descuento", "recargo", "precio", "importe",
+    "total", "cantidad", "valor",
+)
+_TEMPORAL_TOKENS: tuple[str, ...] = ("fecha", "periodo")
+_NARRATIVA_TOKENS: tuple[str, ...] = (
+    "descripcion", "descrip", "horario", "equipamiento", "trans",
+    "audiencia", "texto", "url", "titulo", "contenido", "estado",
+)
 
 
 def detectar_encoding(path: str) -> str:
-    """Detecta la encoding probando utf-8-sig, cp1252 y latin-1 (nunca falla)."""
+    """Encoding del fichero: utf-8-sig -> cp1252 -> latin-1 (latin-1 nunca falla)."""
     raw = Path(path).read_bytes()
     for enc in _CODIFICACIONES:
         try:
@@ -50,28 +59,26 @@ def detectar_encoding(path: str) -> str:
     return "latin-1"
 
 
+# La º ordinal del corpus sale corrompida según el encoding (0xA7 latin-1/cp1252
+# -> §): se normaliza a º para que las recetas enganchen sin importar el byte.
+_ORDINAL_ALIASES: dict[str, str] = {"§": "º"}
+
+
+def normalizar_col(nombre: str) -> str:
+    """'MXASSETNUM,C,12' -> 'mxassetnum' (cabeceras técnicas de datos.madrid.es)."""
+    base = (nombre or "").split(",")[0].strip().lower()
+    return "".join(_ORDINAL_ALIASES.get(ch, ch) for ch in base)
+
+
 def detectar_delimitador(path: str) -> str:
-    """
-    Detecta el separador de un CSV probando ``;``, ``,`` y ``\t``.
-
-    Criterio de consistencia: gana el candidato cuyo número de columnas es
-    **estable entre la cabecera y las primeras filas de datos**. Es necesario
-    porque una cabecera técnica (p. ej. ``MXASSETNUM,C,12;DESCRIPCIO,C,105``)
-    contiene más comas que separadores en su propia primera línea, así que el
-    conteo simple en la cabecera fallaría.
-
-    Returns:
-        El separador detectado (``";"`` por defecto).
-    """
-    import io
-
-    encoding = detectar_encoding(path)
-    texto = Path(path).read_text(encoding=encoding)
-    # Las primeras 5 líneas bastan: cabecera + 4 filas de datos.
-    lineas = [l for l in texto.splitlines() if l.strip()][:5]
+    """Sep. cuyo nº de columnas es estable entre cabecera y datos (y no degenera a 1)."""
+    lineas = [
+        l for l in Path(path).read_text(encoding=detectar_encoding(path)).splitlines()
+        if l.strip()
+    ][:5]
     mejor: str = ";"
     mejor_cols: int = 0
-    for sep in (";", ",", "\t"):
+    for sep in _DELIMITADORES:
         conteos = [
             len(fila)
             for fila in csv.reader(io.StringIO("\n".join(lineas)), delimiter=sep)
@@ -79,283 +86,378 @@ def detectar_delimitador(path: str) -> str:
         ]
         if not conteos:
             continue
-        # Separador "bueno": nº de columnas estable entre cabecera y datos y
-        # no degenerado (>1 columnas). Con el incorrecto, la cabecera y los
-        # datos difieren (o todo queda en 1 columna, el caso vacío).
         if conteos.count(conteos[0]) == len(conteos) and conteos[0] > 1:
-            # A más columnas, más estructurado: el separador que más divide
-            # (sin romper) es el correcto.
             if conteos[0] >= mejor_cols:
                 mejor, mejor_cols = sep, conteos[0]
     return mejor
 
 
-def _iter_filas(path: str) -> list[dict[str, str]]:
-    """Lee todas las filas de un CSV como dict normalizado (sin claves None)."""
+def leer_filas_csv(path: str, sample_size: int | None = None) -> tuple[list[str], list[dict[str, str]]]:
+    """Lee un CSV como dict normalizado: claves basificadas (minúscula, sin sufijo técnico).
+
+    Args:
+        path: ruta del CSV.
+        sample_size: límite de filas leídas (para el perfil); ``None`` = todo.
+    """
+    filas: list[dict[str, str]] = []
+    columnas: list[str] = []
     encoding = detectar_encoding(path)
     delimitador = detectar_delimitador(path)
     with open(path, newline="", encoding=encoding) as f:
-        raw = f.read()
-    filas: list[dict[str, str]] = []
-    for row in csv.DictReader(raw.splitlines(), delimiter=delimitador):
-        filas.append(
-            {
-                str(k).strip(): (v or "").strip()
-                for k, v in row.items()
-                if k is not None and v is not None and v
-            }
-        )
-    return filas
+        reader = csv.DictReader(f, delimiter=delimitador)
+        for c in reader.fieldnames or []:
+            base = normalizar_col(c)
+            if base not in columnas:
+                columnas.append(base)
+        for i, row in enumerate(reader):
+            limpio: dict[str, str] = {}
+            for raw_k, raw_v in row.items():
+                if raw_k is None:  # fila más larga que la cabecera (ruido)
+                    columnas.append("col")
+                    continue
+                base = normalizar_col(raw_k)
+                limpio[base] = (raw_v or "").strip()
+                if base not in columnas:
+                    columnas.append(base)
+            filas.append(limpio)
+            if sample_size is not None and i + 1 >= sample_size:
+                break
+    return list(dict.fromkeys(columnas)), filas
 
 
 # ---------------------------------------------------------------------------
-# Perfilado de columnas (heurísticas sobre el esquema)
+# Perfil estructural
 # ---------------------------------------------------------------------------
 
 
-def _base(c: str) -> str:
-    """Nombre de columna sin el sufijo técnico técnico: 'MXASSETNUM,C,12' -> 'MXASSETNUM'."""
-    return (c.split(",")[0]).strip() if c else c
-
-
-# Métrica de cantidad (se agrega por suma o conteo dentro del grupo).
-# Solo se aplica a columnas "numéricas" (lo comprueba el perfil, no el nombre).
-_RE_METRICA = re.compile(
-    r"(?i)(abonado|descuento|recargo|total|cantidad|precio|importe|valor"
-    r"|^num|\bn§\b|\bnº\b|\bnum\b|\bcount\b)"
-)
-# Detalle: columnas que se conservan DENTRO del grupo (no definen la clave).
-_RE_DETALLE = re.compile(r"(?i)(\bsexo\b|\bedad\b|[g]énero|genero|actividad|gasto)")
-
-
 @dataclass
-class _Perfil:
-    """Perfiles mínimo de una columna para decidir su papel."""
+class CsvProfile:
+    """Métricas estructurales de un CSV (sobre la muestra leída)."""
 
-    numeric_ratio: float = 0.0
-    empty_ratio: float = 0.0
-    unique_ratio: float = 0.0
-    n_unicos: int = 0
-
-
-def _perfilar(filas: list[dict[str, str]], c: str) -> _Perfil:
-    """Calcula ratios (numérico/vacío/único) de la columna ``c``."""
-    n = len(filas)
-    if not n:
-        return _Perfil()
-    n_num = 0
-    n_empty = 0
-    vistos: set[str] = set()
-    for f in filas:
-        v = f.get(c, "")
-        if not v:
-            n_empty += 1
-            continue
-        vistos.add(v)
-        try:
-            float(v)
-            n_num += 1
-        except ValueError:
-            pass
-    return _Perfil(
-        numeric_ratio=n_num / n,
-        empty_ratio=n_empty / n,
-        unique_ratio=len(vistos) / n,
-        n_unicos=len(vistos),
-    )
+    source: str
+    path: str
+    columns: list[str] = field(default_factory=list)
+    n_rows: int = 0
+    n_cols: int = 0
+    id_columns: list[str] = field(default_factory=list)
+    measure_columns: list[str] = field(default_factory=list)
+    temporal_columns: list[str] = field(default_factory=list)
+    narrative_columns: list[str] = field(default_factory=list)
+    numeric_ratio: float = 0.0  # prop. de columnas con ≥50 % valores numéricos
+    narrative_ratio: float = 0.0
+    avg_row_chars: float = 0.0
+    uniqueness_ratio: float = 0.0  # 1.0 = todas las filas distintas
+    has_date_column: bool = False
+    # Internos de inferencia (no se serializan)
+    numeric_col_ratios: dict[str, float] = field(default_factory=dict)
+    top_cardinality: dict[str, int] = field(default_factory=dict)
 
 
-def _es_metrica(c: str) -> bool:
-    return bool(_RE_METRICA.search(_base(c)))
+def _parece_id(columna: str) -> bool:
+    c = normalizar_col(columna)
+    return any(tok in c for tok in _ID_TOKENS)
 
 
-def _es_detalle(c: str) -> bool:
-    return bool(_RE_DETALLE.search(_base(c)))
+def _parece_medida(columna: str) -> bool:
+    c = normalizar_col(columna)
+    return any(tok in c for tok in _MEDIDA_TOKENS)
 
 
-# Nº de columnas por debajo de las cuales un fichero con ID se trata como
-# catálogo (entity) en vez de hecho ancho (fila).
-_MAX_COLS_ENTITY = 20
+def _parece_temporal(columna: str) -> bool:
+    c = normalizar_col(columna)
+    return any(tok in c for tok in _TEMPORAL_TOKENS)
 
 
-@dataclass
-class PlanCsv:
-    """Plan de carga derivado por el advisor para un CSV concreto."""
-
-    path: str = ""
-    estrategia: str = "fila"  # "entity" | "grupos" | "fila"
-    delimitador: str = ";"
-    encoding: str = "latin-1"
-    n_filas: int = 0
-    # entity
-    id_column: str | None = None
-    label_column: str | None = None
-    # grupos
-    metric_column: str | None = None
-    group_keys: tuple[str, ...] = ()
-    detail_columns: tuple[str, ...] = ()
-    atomic: bool = True  # True: cada fila=1 unidad (contar); False: sumar.
-    # fila
-    columns: tuple[str, ...] = ()
-    # diagnóstico
-    ids_unicos: int = 0
-    n_ids_repetidos: int = 0
-    es_nuevo: bool = True
+def _parece_narrativa(columna: str) -> bool:
+    c = normalizar_col(columna)
+    return any(tok in c for tok in _NARRATIVA_TOKENS)
 
 
-class CsvAdvisor:
-    """Evalúa un CSV y devuelve su :class:`PlanCsv`.
+def _parece_num(valor: str) -> bool:
+    texto = valor.replace(" ", "").replace(",", ".")
+    try:
+        float(texto)
+        return True
+    except ValueError:
+        return False
+
+
+def inspect_csv(path: str, sample_size: int = 2000) -> CsvProfile:
+    """Perfil estructural de un CSV (muestra leída; nunca lee el fichero entero).
 
     Args:
-        overrides: planes fijados por ``source`` (nombre de archivo). Un CSV con
-            override se sirve sin re-inferir (reproducible y barato).
-        known_sources: fuentes ya evaluadas en pasadas anteriores. Un archivo no
-            en este conjunto y sin override se marca ``es_nuevo`` (para emitir
-            su plan recién detectado).
+        path: ruta del CSV.
+        sample_size: nº de filas de datos perfiladas (1000-5000 es suficiente).
+    """
+    columnas, filas = leer_filas_csv(path, sample_size=sample_size)
+    n_rows = len(filas)
+    n_cols = len(columnas)
+
+    id_columns = [c for c in columnas if _parece_id(c)]
+    temporal_columns = [c for c in columnas if _parece_temporal(c)]
+    measure_nombradas = [c for c in columnas if _parece_medida(c)]
+    narrative = [c for c in columnas if _parece_narrativa(c)]
+
+    # Densidad numérica real de cada columna (sobre las primeras 1000 filas no vacías).
+    numeric_ratios: dict[str, float] = {}
+    cardinalidad: dict[str, int] = {}
+    for c in columnas:
+        valores = [r[c] for r in filas[:1000] if r.get(c)]
+        if not valores:
+            continue
+        numeric_ratios[c] = sum(1 for v in valores if _parece_num(v)) / len(valores)
+        cardinalidad[c] = len(set(valores))
+
+    num_cols = sum(1 for r in numeric_ratios.values() if r >= 0.5)
+    num_ratio = num_cols / len(numeric_ratios) if numeric_ratios else 0.0
+    narr_ratio = len(narrative) / n_cols if n_cols else 0.0
+
+    filas_str = ["|".join(r.get(c, "") for c in columnas) for r in filas]
+    uniqueness = len(set(filas_str)) / n_rows if n_rows else 0.0
+    avg_chars = sum(len(s) for s in filas_str) / n_rows if n_rows else 0.0
+
+    # Medidas reales: la densidad numérica decide (una columna "precio" vacía
+    # no es una medida para este corpus).
+    medidas_efectivas = [
+        c for c in measure_nombradas if numeric_ratios.get(c, 0.0) >= 0.5
+    ]
+
+    return CsvProfile(
+        source=Path(path).name,
+        path=path,
+        columns=columnas,
+        n_rows=n_rows,
+        n_cols=n_cols,
+        id_columns=id_columns,
+        measure_columns=medidas_efectivas,
+        temporal_columns=temporal_columns,
+        narrative_columns=narrative,
+        numeric_ratio=round(num_ratio, 3),
+        narrative_ratio=round(narr_ratio, 3),
+        avg_row_chars=round(avg_chars, 1),
+        uniqueness_ratio=round(uniqueness, 3),
+        has_date_column=bool(temporal_columns),
+        numeric_col_ratios=numeric_ratios,
+        top_cardinality=cardinalidad,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Consejo ejecutable (la política que el pipeline aplica)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CsvAdvice:
+    """Decisión de tratamiento para un CSV.
+
+    Fields:
+        csv_kind: ``entity_table`` | ``fact_table`` | ``time_series`` |
+            ``textual_table`` | ``unknown_csv``.
+        treatment: ``entity_doc`` | ``grouped_doc`` | ``row_as_doc``.
+        dedup_policy: ``exact_only`` | ``exact_key`` | ``group_only`` |
+            ``semantic_optional`` (los demás por omisión -> dedup semántica).
+        id_columns / measure_columns / grouping_keys: en forma basificada
+            (la misma que las claves de las filas de ``leer_filas_csv``).
     """
 
-    def __init__(
-        self,
-        overrides: dict[str, PlanCsv] | None = None,
-        known_sources: set[str] | None = None,
-    ) -> None:
-        self._overrides = overrides or {}
-        self._known = known_sources or set()
+    source: str
+    csv_kind: str
+    treatment: str
+    dedup_policy: str
+    id_columns: list[str] = field(default_factory=list)
+    measure_columns: list[str] = field(default_factory=list)
+    grouping_keys: list[str] = field(default_factory=list)
+    confidence: float = 0.5
+    reason: str = ""
 
-    def plan(self, path: str) -> PlanCsv:
-        """Devuelve el plan (fijado o inferido) para ``path``."""
-        source = Path(path).name
-        if source in self._overrides:
-            return dataclasses.replace(
-                self._overrides[source], path=path, es_nuevo=False
-            )
-        plan = self._infer(path)
-        plan.es_nuevo = source not in self._known
-        return plan
 
-    # ------------------------------------------------------------------ #
-    def _infer(self, path: str) -> PlanCsv:
-        filas = _iter_filas(path)
-        plan = PlanCsv(path=path)
-        plan.delimitador = detectar_delimitador(path)
-        plan.encoding = detectar_encoding(path)
-        plan.n_filas = len(filas)
-        if not filas:
-            return plan
+# Recetas de fuentes conocidas (datos.madrid.es). Las claves van basificadas
+# (mismo formato que ``leer_filas_csv``). Si la regeneración cambia el esquema,
+# ``match_known_source`` devuelve ``None`` y la heurística toma el relevo.
+RECETAS_CONOCIDAS: dict[str, dict[str, object]] = {
+    "200186-0-polideportivos.csv": {
+        "kind": "entity_table", "treatment": "entity_doc", "dedup": "exact_key",
+        "id_columns": ["pk"],
+        "reason": "entidades (centros) con PK estable",
+    },
+    "200215-0-instalaciones-deportivas.csv": {
+        "kind": "entity_table", "treatment": "entity_doc", "dedup": "exact_key",
+        "id_columns": ["pk"],
+        "reason": "entidades (instalaciones) con PK estable",
+    },
+    "210227-0-piscinas-publicas.csv": {
+        "kind": "entity_table", "treatment": "entity_doc", "dedup": "exact_key",
+        "id_columns": ["pk"],
+        "reason": "entidades (piscinas) con PK estable",
+    },
+    "300390-0-areas-deportivas.csv": {
+        "kind": "entity_table", "treatment": "entity_doc", "dedup": "exact_key",
+        "id_columns": ["mxassetnum"],
+        "reason": "entidades (áreas) con identificador estable",
+    },
+    "300085-0-deportes_abonos.csv": {
+        "kind": "fact_table", "treatment": "grouped_doc", "dedup": "group_only",
+        "id_columns": [], "claves": ["mes", "centro deportivo", "tipo de abono"],
+        "medidas": ["nº de abonados"],
+        "reason": "tabla de hechos masiva; 1 fila = 1 abonado",
+    },
+    "300097-0-deportes-descuentos.csv": {
+        "kind": "fact_table", "treatment": "grouped_doc", "dedup": "group_only",
+        "id_columns": [], "claves": ["grupo descuento/recargo", "mes",
+                                       "centro deportivo", "distrito"],
+        "medidas": ["nº descuentos"],
+        "reason": "tabla de hechos; 1 fila = 1 descuento",
+    },
+    "212504-0-agenda-actividades-deportes.csv": {
+        "kind": "entity_table", "treatment": "entity_doc", "dedup": "exact_key",
+        "id_columns": ["id-evento"],
+        "reason": "eventos con identificador estable",
+    },
+}
 
-        columnas = list(filas[0].keys())
-        plan.columns = tuple(columnas)
-        perfil = {c: _perfilar(filas, c) for c in columnas}
 
-        id_column = self._detectar_id(filas, perfil)
-        plan.id_column = id_column
-        if id_column is not None:
-            plan.ids_unicos = perfil[id_column].n_unicos
-            plan.n_ids_repetidos = len(filas) - plan.ids_unicos
-        metric_column = self._detectar_metrica(columnas, perfil, id_column)
-        plan.metric_column = metric_column
-
-        if id_column is not None:
-            plan.estrategia = (
-                "entity" if len(columnas) <= _MAX_COLS_ENTITY else "fila"
-            )
-            if plan.estrategia == "entity":
-                plan.label_column = self._elegir_label(columnas, perfil, id_column)
-        elif metric_column is not None:
-            plan.estrategia = "grupos"
-            detalle = tuple(c for c in columnas if _es_detalle(_base(c)))
-            claves = tuple(
-                c for c in columnas
-                if c != metric_column and c != id_column and c not in detalle
-                and _base(c)
-            )
-            plan.detail_columns = detalle
-            plan.group_keys = claves
-            plan.atomic = self._es_atomico(filas, metric_column)
-        else:
-            plan.estrategia = "fila"
-
-        return plan
-
-    # ------------------------------------------------------------------ #
-    @staticmethod
-    def _detectar_id(filas: list[dict[str, str]], perfil: dict[str, _Perfil]) -> str | None:
-        """Primer candidata a ID: único (~100 %) y no-métrica."""
-        for c, p in perfil.items():
-            if p.unique_ratio >= 0.9 and p.empty_ratio <= 0.05 and p.n_unicos >= 2:
-                if not _RE_METRICA.search(_base(c)):
-                    return c
+def match_known_source(profile: CsvProfile) -> CsvAdvice | None:
+    """Receta fija para ``source`` conocido. ``None`` si la fuente no es
+    conocida o su esquema ya no contiene las columnas esperadas."""
+    receta = RECETAS_CONOCIDAS.get(profile.source)
+    if receta is None:
         return None
-
-    @staticmethod
-    def _detectar_metrica(
-        columnas: list[str], perfil: dict[str, _Perfil], id_column: str | None
-    ) -> str | None:
-        for c in columnas:
-            if c == id_column:
-                continue
-            p = perfil[c]
-            if p.numeric_ratio >= 0.8 and _RE_METRICA.search(_base(c)):
-                return c
+    claves = [c for c in (receta.get("claves") or ()) if c not in profile.columns]
+    ids = [c for c in (receta.get("id_columns") or ()) if c not in profile.columns]
+    medidas = [c for c in (receta.get("medidas") or ()) if c not in profile.columns]
+    if claves or ids or medidas:  # esquema cambiado: degradar a heurística
         return None
-
-    @staticmethod
-    def _es_atomico(filas: list[dict[str, str]], metric: str) -> bool:
-        """True si la métrica casi siempre es 1 (cada fila = 1 unidad)."""
-        valores: list[int] = []
-        for f in filas:
-            try:
-                valores.append(int(float(f.get(metric, ""))))
-            except ValueError:
-                pass
-        if not valores:
-            return True
-        return sum(1 for v in valores if v == 1) / len(valores) >= 0.9
-
-    @staticmethod
-    def _elegir_label(
-        columnas: list[str], perfil: dict[str, _Perfil], id_column: str | None
-    ) -> str | None:
-        """Columna de texto más descriptiva (no numérica, no vacía, no ID)."""
-        for c in columnas:
-            if c == id_column or not c:
-                continue
-            if perfil[c].numeric_ratio < 0.5 and perfil[c].empty_ratio < 0.9:
-                return c
-        return None
-
-
-# ---------------------------------------------------------------------------
-# Serialización del plan (para fijar/confirmar planes)
-# ---------------------------------------------------------------------------
-
-
-def plan_a_dict(plan: PlanCsv) -> dict:
-    """Convierte un PlanCsv en dict serializable (sin ``path``/``es_nuevo``)."""
-    d = asdict(plan)
-    d.pop("path", None)
-    d.pop("es_nuevo", None)
-    return d
-
-
-def dict_a_plan(data: dict, path: str) -> PlanCsv:
-    """Reconstruye un PlanCsv desde un dict (usado por override)."""
-    campos = {
-        k: v for k, v in data.items()
-        if k in {
-            "estrategia", "delimitador", "encoding", "id_column", "label_column",
-            "metric_column", "atomic", "n_filas",
-        }
-    }
-    return PlanCsv(
-        path=path,
-        estrategia=campos.get("estrategia", "fila"),
-        delimitador=campos.get("delimitador", ";"),
-        encoding=campos.get("encoding", "latin-1"),
-        id_column=campos.get("id_column"),
-        label_column=campos.get("label_column"),
-        metric_column=campos.get("metric_column"),
-        atomic=campos.get("atomic", True),
-        n_filas=campos.get("n_filas", 0),
-        es_nuevo=False,
+    return CsvAdvice(
+        source=profile.source,
+        csv_kind=str(receta["kind"]),
+        treatment=str(receta["treatment"]),
+        dedup_policy=str(receta["dedup"]),
+        id_columns=list(receta.get("id_columns") or ()),
+        measure_columns=list(receta.get("medidas") or ()),
+        grouping_keys=list(receta.get("claves") or ()),
+        confidence=0.99,
+        reason=str(receta["reason"]),
     )
+
+
+def _elegir_claves(profile: CsvProfile) -> list[str]:
+    """Claves de agrupación para un unknown fact: dimensiones (sin medidas,
+    sin IDs, sin narrativas), temporales primero, máx. 4."""
+    medidas = set(profile.measure_columns)
+    ids = set(profile.id_columns)
+    dimensiones: list[str] = []
+    for c in profile.temporal_columns:
+        if c not in medidas and c not in ids:
+            dimensiones.append(c)
+    for c in profile.columns:
+        if (c not in medidas and c not in ids and c not in dimensiones
+                and not _parece_narrativa(c)):
+            dimensiones.append(c)
+        if len(dimensiones) >= 4:
+            break
+    return dimensiones[:4]
+
+
+def infer_csv_kind(profile: CsvProfile) -> CsvAdvice:
+    """Heurística por perfil estructural (CSV nuevo o fuente renombrada).
+
+    Orden (de más específica a más genérica):
+       1. entity: columna ID (catalogo), sin periodo temporal
+          -> entity_doc + exact_key (la dedup semántica rompe IDs casi iguales).
+      2. fact/time_series: medidas numéricas reales + 3+ dimensiones
+         -> grouped_doc + group_only (agrupar por dimensiones; las filas
+            repetitivas no compiten en dedup semántica).
+      3. textual: filas ricas en texto o columnas narrativas dominantes
+         -> row_as_doc + semantic_optional.
+      4. unknown: fila por documento + exact_only (fallback seguro).
+    """
+    n_cols = profile.n_cols
+
+    def _claves(
+        kind: str,
+        treatment: str,
+        dedup: str,
+        conf: float,
+        razon: str,
+        claves: list[str] | None = None,
+        medidas: list[str] | None = None,
+        ids: list[str] | None = None,
+    ) -> CsvAdvice:
+        return CsvAdvice(
+            source=profile.source,
+            csv_kind=kind,
+            treatment=treatment,
+            dedup_policy=dedup,
+            id_columns=ids if ids is not None else profile.id_columns[:1],
+            measure_columns=medidas if medidas is not None else profile.measure_columns[:1],
+            grouping_keys=claves if claves is not None else [],
+            confidence=conf,
+            reason=razon,
+        )
+
+    # 1. Entidades.
+    if profile.id_columns and n_cols >= 3 and not profile.temporal_columns:
+        return _claves(
+            "entity_table", "entity_doc", "exact_key", 0.8,
+            "ID estable en tabla de entidad -> dedup exacta por clave",
+            ids=profile.id_columns[:2],
+        )
+
+    # 2. Tabla de hechos.
+    dimensiones = [
+        c for c in profile.columns
+        if c not in profile.measure_columns
+        and c not in profile.id_columns
+        and not _parece_narrativa(c)
+    ]
+    narrativas = len(profile.narrative_columns)
+    narr_ratio = narrativas / n_cols if n_cols else 0.0
+    if (
+        profile.measure_columns
+        and len(dimensiones) >= 3
+        and narr_ratio < 0.3
+    ):
+        claves = _elegir_claves(profile)
+        kind = (
+            "time_series"
+            if profile.has_date_column and len(profile.measure_columns) >= 1
+            else "fact_table"
+        )
+        conf = 0.85 if kind == "time_series" else 0.75
+        return _claves(
+            kind, "grouped_doc", "group_only", conf,
+            "medidas + dimensiones -> agrupar por dimensiones (group_only)",
+            claves=claves,
+        )
+
+    # 3. Tabla textual.
+    if (
+        profile.avg_row_chars > 250
+        or narrativas >= 2
+        or narr_ratio >= 0.5
+    ):
+        return _claves(
+            "textual_table", "row_as_doc", "semantic_optional", 0.65,
+            "filas textuales: cada fila es un documento (dedup semántica opcional)",
+        )
+
+    # 4. Fallback conservador.
+    return _claves(
+        "unknown_csv", "row_as_doc", "exact_only", 0.4,
+        "CSV no reconocido: fila por documento, dedup solo exacta",
+        medidas=profile.measure_columns[:1],
+    )
+
+
+def advise_csv(path: str) -> tuple[CsvAdvice, CsvProfile]:
+    """Clasifica un CSV: receta de fuente conocida o heurística de perfil.
+
+    Returns:
+        (consejo ejecutable, perfil estructural) para el log de `[CSV]`.
+    """
+    profile = inspect_csv(path)
+    consejo = match_known_source(profile)
+    if consejo is None:
+        consejo = infer_csv_kind(profile)
+    return consejo, profile

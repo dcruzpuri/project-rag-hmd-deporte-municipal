@@ -36,6 +36,7 @@ def _docs(
     ]
 
 
+
 def _vecs(textos: list[float]) -> list[list[float]]:
     """Vectores unitarios 1D a partir de escalares."""
     return [[float(v), 0.0] for v in textos]

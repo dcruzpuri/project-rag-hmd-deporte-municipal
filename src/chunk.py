@@ -45,11 +45,25 @@ def trocear(
     )
 
     chunks: list[Document] = []
+
+    def _sin_trocear(doc: Document) -> None:
+        # Bypass por `chunking_hint` del advisor (csv_advisor): un documento ya
+        # atómico (entidad) o corto (grupo light) no pasa por el splitter.
+        doc.metadata = {**doc.metadata, "chunk_index": 0, "chunk_size": size}
+        chunks.append(doc)
+
     for doc in documentos:
-        doc_chunks = splitter.split_documents([doc])
-        for i, chunk in enumerate(doc_chunks):
-            # Puente TAG→CHUNK: hereda la metadata del documento padre
-            # (doc_category, tags, relevancia_llm) + chunk_index secuencial por documento [17].
-            chunk.metadata = {**doc.metadata, "chunk_index": i, "chunk_size": size}
-            chunks.append(chunk)
+        hint = doc.metadata.get("chunking_hint", "normal_chunk")
+        if hint == "no_chunk":
+            _sin_trocear(doc)
+        elif hint == "light_chunk" and len(doc.page_content) <= size:
+            _sin_trocear(doc)
+        else:
+            doc_chunks = splitter.split_documents([doc])
+            for i, chunk in enumerate(doc_chunks):
+                # Puente TAG→CHUNK: hereda la metadata del documento padre
+                # (doc_category, tags, relevancia_llm) + chunk_index secuencial
+                # por documento [17]. chunking_hint del advisor también viaja.
+                chunk.metadata = {**doc.metadata, "chunk_index": i, "chunk_size": size}
+                chunks.append(chunk)
     return chunks

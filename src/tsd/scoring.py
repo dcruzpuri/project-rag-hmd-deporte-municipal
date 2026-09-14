@@ -11,6 +11,9 @@ O(n²) a O(n·d) (~68 GB a ~1,3 GB en la escala real: n=129.917, d=2.560),
 que era la causa del OOM en la fase [TSD].
 """
 
+import time
+from typing import Any
+
 import faiss
 import numpy as np
 from langchain_core.documents import Document
@@ -57,8 +60,16 @@ def _redundancias(E: np.ndarray) -> np.ndarray:
     return red.astype(np.float32)
 
 
-def puntuar(chunks: list[Document], embeddings: list[list[float]]) -> list[Document]:
-    """Puntúa cada chunk y guarda el resultado en metadata['semantic_score']."""
+def puntuar(chunks: list[Document], embeddings: list[list[float]],
+            info: dict[str, Any] | None = None) -> list[Document]:
+    """Puntúa cada chunk y guarda el resultado en metadata['semantic_score'].
+
+    Args:
+        chunks: chunks con metadata (relevancia_llm, source).
+        embeddings: matrices de los vectores (float32, normalizados).
+        info: dict opcional donde se vuelcan las métricas del scoring
+            (para el informe de indexación).
+    """
     if not chunks:
         return chunks
 
@@ -77,6 +88,7 @@ def puntuar(chunks: list[Document], embeddings: list[list[float]]) -> list[Docum
     # vectores normalizados y trata el producto punto como coseno.
     redundancias = _redundancias(E)
 
+    t0 = time.time()
     for i, chunk in enumerate(chunks):
         m = chunk.metadata
         score = (
@@ -97,4 +109,20 @@ def puntuar(chunks: list[Document], embeddings: list[list[float]]) -> list[Docum
     print(
         f"[SCORE] mejor: \"{top.page_content[:60].strip()}...\" ({top.metadata['semantic_score']:.3f})"
     )
+    if info is not None:
+        info.update(
+            {
+                "scoring": {
+                    "semantic_score_min": round(min(scores), 4),
+                    "semantic_score_media": round(sum(scores) / len(scores), 4),
+                    "semantic_score_max": round(max(scores), 4),
+                    "centralidad_media": round(float(centralidad.mean()), 4),
+                    "redundancia_media": round(float(redundancias.mean()), 4),
+                    "score_buenos_pct": round(
+                        sum(1 for s in scores if s >= 0.6) / len(scores) * 100, 1
+                    ),
+                    "tiempo_s": round(time.time() - t0, 1),
+                }
+            }
+        )
     return chunks
