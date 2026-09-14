@@ -73,6 +73,9 @@ def puntuar(chunks: list[Document], embeddings: list[list[float]],
     if not chunks:
         return chunks
 
+    # Mide la fase COMPLETA (array + centroide + redundancia FAISS + bucle):
+    # perf_counter para precisión real (los tiempos del informe muestran ms).
+    t0 = time.perf_counter()
     E = np.asarray(embeddings, dtype=np.float32)
     n, dim = E.shape
 
@@ -88,7 +91,6 @@ def puntuar(chunks: list[Document], embeddings: list[list[float]],
     # vectores normalizados y trata el producto punto como coseno.
     redundancias = _redundancias(E)
 
-    t0 = time.time()
     for i, chunk in enumerate(chunks):
         m = chunk.metadata
         score = (
@@ -118,10 +120,12 @@ def puntuar(chunks: list[Document], embeddings: list[list[float]],
                     "semantic_score_max": round(max(scores), 4),
                     "centralidad_media": round(float(centralidad.mean()), 4),
                     "redundancia_media": round(float(redundancias.mean()), 4),
+                    "score_buenos_n": sum(1 for s in scores if s >= 0.6),
+                    "chunks_n": len(scores),
                     "score_buenos_pct": round(
-                        sum(1 for s in scores if s >= 0.6) / len(scores) * 100, 1
+                        sum(1 for s in scores if s >= 0.6) / len(scores) * 100, 4
                     ),
-                    "tiempo_s": round(time.time() - t0, 1),
+                    "tiempo_s": round(time.perf_counter() - t0, 3),
                 }
             }
         )

@@ -5,6 +5,7 @@ Carga los embeddings en ChromaDB (base vectorial local y ligera) [6].
 import chromadb
 from chromadb.config import Settings
 from chromadb.errors import NotFoundError
+from typing import Any
 
 from config import CHROMA_DIR, COLLECTION_NAME, COSINE_SPACE
 
@@ -30,7 +31,7 @@ def crear_coleccion(client, nombre: str | None = None):
 
 
 # Sanitizar metadatos: Chroma no acepta None ni listas [6]
-def _sanear(meta: dict) -> dict:
+def _sanear(meta: dict[str, Any]) -> dict[str, Any]:
     limpio = {}
     for k, v in meta.items():
         if v is None:
@@ -46,12 +47,17 @@ def indexar(
     ids: list[str],
     embeddings: list[list[float]],
     documents: list[str],
-    metadatos: list[dict],
+    metadatos: list[dict[str, Any]],
     persist_dir: str | None = None,
     collection_name: str | None = None,
     recreate: bool = False,
-) -> None:
-    """Inserta vectores + texto + metadata en ChromaDB."""
+) -> tuple[int, int]:
+    """Inserta vectores + texto + metadata en ChromaDB.
+
+    Returns:
+        (vectores_insertados, vectores_totales_colección): la inserción
+        verificada (ids vivos) y el recuento total de la colección.
+    """
     client = obtener_cliente_chroma(persist_dir)
     nombre = collection_name or COLLECTION_NAME
     if recreate:
@@ -87,4 +93,6 @@ def indexar(
     assert vivos == n_unicos, (
         f"Desajuste en nº de vectores: {vivos} vivos de {n_unicos} insertados"
     )
-    print(f"[INDEX] colección '{collection.name}': {collection.count()} vectores ({vivos} en esta inserción)")
+    totales = collection.count()
+    print(f"[INDEX] colección '{collection.name}': {totales} vectores ({vivos} en esta inserción)")
+    return vivos, totales

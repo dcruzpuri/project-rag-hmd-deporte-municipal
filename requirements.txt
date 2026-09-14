@@ -19,6 +19,7 @@ google-genai>=2.23.0
 # HuggingFace
 sentence-transformers>=6.0.1
 transformers>=5.17.0
+huggingface-hub>=0.34
 
 
 

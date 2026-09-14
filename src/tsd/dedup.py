@@ -104,7 +104,7 @@ def deduplicar(
         info: dict opcional donde se vuelcan las métricas del dedup
             (para el informe de indexación).
     """
-    t0 = time.time()
+    t0 = time.perf_counter()
     if not chunks:
         return [], []
 
@@ -152,6 +152,6 @@ def deduplicar(
             "descartados_semantico": n_desc_sem,
             "descartados_total": n_descartadas,
             "descartados_pct": round(n_descartadas / n_total * 100, 1),
-            "tiempo_s": round(time.time() - t0, 1),
+            "tiempo_s": round(time.perf_counter() - t0, 3),
         }
     return [chunks[i] for i in kept_orden], [embeddings[i] for i in kept_orden]
