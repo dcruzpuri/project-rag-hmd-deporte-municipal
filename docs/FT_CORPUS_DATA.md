@@ -118,7 +118,7 @@ Para configurar un proveedor (EMBEDDINGS, TAGGING o GENERATION) basta con selecc
 | `GOOGLE_EMBED_MODEL` | `gemini-embedding-2` | embedding Google |
 | `GOOGLE_GEN_MODEL` | `gemini-2.0-flash` | LLM Google |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | `1000` / `150` | troceado |
-| `EMBED_DIM` | `384` | cap de dimensión del índice: `dim final = min(dim del modelo, EMBED_DIM)` (ver `src/embed.py`) |
+| `EMBED_DIM` | `384` | Tope máximo de dimensión del índice: `dim final = min(dim del modelo, EMBED_DIM)` (ver `src/embed.py`) |
 | `EMBED_BATCH_SIZE` | `30` | lotes de embedding |
 | `EMBED_DIM_MAX_OLLAMA` / `_HF` / `_GOOGLE` | (vacío) | caché offline del preflight: dim máxima del modelo cuando no se puede verificar online; vacío = no declarado |
 | `EXPORT_EMBEDDINGS` | `true` | volca `output/embeddings.json` al terminar |

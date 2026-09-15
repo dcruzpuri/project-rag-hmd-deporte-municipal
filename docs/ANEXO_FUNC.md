@@ -21,7 +21,7 @@ Constantes del proyecto, leídas de `.env` con defaults: se cambia de proveedor 
 | `GOOGLE_API_KEY` | — | Clave API; obligada si el proveedor `google` se usa en alguno de los interruptores |
 | `OLLAMA_*_MODEL`, `HF_*_MODEL`, `GOOGLE_*_MODEL` | ver `.env.example` | Modelos por proveedor de cada interruptor (EMBED / GEN / TAG) |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | `1000` / `150` | Longitud y sobrelap del troceado |
-| `EMBED_DIM` | `384` | Cap de dimensión: `dim índice = min(dim modelo, EMBED_DIM)` (ver `src/embed.py`) |
+| `EMBED_DIM` | `384` | Tope máximo de dimensión: `dim índice = min(dim modelo, EMBED_DIM)` (ver `src/embed.py`) |
 | `EMBED_BATCH_SIZE` | `30` | Tamaño de lote por proveedor |
 | `EMBED_DIM_MAX_OLLAMA` / `_HF` / `_GOOGLE` | `None` | Caché offline del preflight: dim máxima que maneja el modelo cuando la comprobación online no es posible (red cortada / sin API key) |
 | `EXPORT_EMBEDDINGS` | `true` | Exporta `output/embeddings.json` al terminar |

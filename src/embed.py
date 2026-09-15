@@ -5,12 +5,13 @@ Convierte texto en vectores. Soporta 3 proveedores:
   - huggingface  (online)   -> sentence-transformers
   - google       (online)   -> REST batchEmbedContents
 Condición RAG: el índice y la consulta deben usar el MISMO modelo [5].
-Garantía de dimensión: ``embeddear()`` nunca devuelve más de ``EMBED_DIM``
+Garantía de dimensión: `embeddear()` nunca devuelve más de `EMBED_DIM`
 dimensiones (corte del prefijo + renormalización); al ser la puerta única,
 la garantía la heredan el índice y la consulta futura.
 """
 import json
 import os
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypedDict
@@ -36,7 +37,7 @@ from config import (
 # Caché: SentenceTransformer se carga una sola vez por modelo (evita `global`)
 _HF_CACHE: dict[str, SentenceTransformer] = {}
 
-# Firma de los proveedores: (textos, modelo, cap de dim) -> vectores
+# Firma de los proveedores: (textos, modelo, máximo de dim) -> vectores
 _FN_PROVEEDOR = Callable[[list[str], str | None, int | None], list[list[float]]]
 
 
@@ -82,25 +83,58 @@ def _embed_huggingface(textos: list[str], model: str | None = None,
     return vecs.tolist()
 
 
+def _reintentar_cuota(url: str, headers: dict, body: dict) -> requests.Response:
+    """POST con retry sobre cuota (429): espera según respuesta 'RetryInfo.retryDelay' 
+    de la API como delay.
+    El free tier de Gemini limita a 100 embeddings/min por modelo; una tanda
+    que no cabe en la ventana se reintenta tras el delay que pide la respuesta
+    (p. ej. "51s"). 15 intentos en total (el primero + 14 reintentos).
+    """
+    for intento in range(15):  # 200 directo o 14 reintentos sobre cuota
+        resp = requests.post(url, headers=headers, json=body, timeout=120)
+        if resp.status_code != 429 or intento == 14:
+            return resp
+        delay = 60.0  # por defecto: la ventana de cuota dura ~1 min
+        try:
+            for d in resp.json().get("details", []):
+                rd = d.get("retryDelay")
+                if rd:
+                    delay = float(str(rd).rstrip("s"))
+                    break
+        except (ValueError, KeyError, UnicodeDecodeError, TypeError):
+            pass
+        time.sleep(delay + 0.5)
+    raise AssertionError("inaccesible: repetidos fallos de la llamada.")
+
+
 def _embed_google(textos: list[str], model: str | None = None,
                   dim: int | None = None) -> list[list[float]]:
     """Google Gemini vía REST (requiere GOOGLE_API_KEY).
 
-    ``dim`` se acepta y se ignora a propósito: el body de batchEmbedContents
-    usado aquí no soporta ``outputDimensionality`` de forma fiable, así que el
-    cap lo aplica el recorte de ``embeddear()``.
+    `dim` se acepta y se ignora a propósito: el body de batchEmbedContents
+    usado aquí no soporta `outputDimensionality` de forma fiable, así que el
+    máximo de dimensiones lo aplica el recorte de `embeddear()`.
     """
     if not GOOGLE_API_KEY:
         raise RuntimeError("GOOGLE_API_KEY no está definida en .env")
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
            f"{model or GOOGLE_EMBED_MODEL}:batchEmbedContents")
     headers = {"x-goog-api-key": GOOGLE_API_KEY}
+    n_modelo = f"models/{model or GOOGLE_EMBED_MODEL}"
     vectores: list[list[float]] = []
     for inicio in range(0, len(textos), EMBED_BATCH_SIZE):
+        lote = inicio // EMBED_BATCH_SIZE + 1
         batch = textos[inicio:inicio + EMBED_BATCH_SIZE]
-        body = {"contents": [{"parts": [{"text": t}]} for t in batch]}
-        resp = requests.post(url, headers=headers, json=body, timeout=120)
-        resp.raise_for_status()
+        body = {"requests": [
+            {"model": n_modelo, "content": {"parts": [{"text": t}]}}
+            for t in batch
+        ]}
+        resp = _reintentar_cuota(url, headers, body)
+        if resp.status_code >= 400:
+            raise RuntimeError(
+                f"Google API {resp.status_code} en lote {lote} "
+                f"({len(batch)} textos): {resp.text[:500]}"
+            )
         # La API devuelve "values" (o "value" en algunas versiones) por embedding
         for r in resp.json()["embeddings"]:
             emb = r.get("values") or r.get("value")
@@ -129,11 +163,11 @@ def _normalizar(vectores: list[list[float]]) -> list[list[float]]:
 
 
 def _corte_dim(vectores: list[list[float]], dim_cap: int | None) -> list[list[float]]:
-    """Cap del tamaño de los vectores: nunca supera ``dim_cap``.
+    """Tamaño máximo de los vectores: nunca supera `dim_cap`.
 
-    Corta el prefijo (las primeras ``dim_cap`` coordenadas) y renormaliza,
-    coherente con la métrica coseno de Chroma. Es no-op si ``dim_cap`` es
-    ``None`` o los vectores ya caben.
+    Corta el prefijo (las primeras `dim_cap` coordenadas) y renormaliza,
+    coherente con la métrica coseno de Chroma. Es no-op si `dim_cap` es
+    `None` o los vectores ya caben.
     """
     if dim_cap is None or not vectores or len(vectores[0]) <= dim_cap:
         return vectores
@@ -142,15 +176,15 @@ def _corte_dim(vectores: list[list[float]], dim_cap: int | None) -> list[list[fl
 
 def embeddear(textos: list[str], model: str | None = None,
               dim: int | None = None) -> list[list[float]]:
-    """Convierte una lista de textos en vectores usando el proveedor de ``EMBED_PROVIDER``.
+    """Convierte una lista de textos en vectores usando el proveedor de 'EMBED_PROVIDER'.
 
     Args:
         textos: textos a embadizar.
         model: modelo concreto (por defecto, el de .env para el proveedor activo).
-        dim: cap de dimensión; por defecto ``EMBED_DIM`` de .env.
+        dim: tope de dimensión; por defecto 'EMBED_DIM' de .env.
 
     Returns:
-        Vectores normal cuya dimensión NO supera ``dim`` (corte del prefijo
+        Vectores normal cuya dimensión NO supera 'dim' (corte del prefijo
         + renormalización si el modelo produce más). Al ser la puerta única
         por la que pasan el índice y la consulta, la dim es consistente en ambas.
     """
@@ -182,7 +216,7 @@ def exportar_json(chunks: list, embeddings: list[list[float]] | None = None,
         json.dump(registros, f, ensure_ascii=False, indent=2, default=str)
 
 
-# --- Preflight: comprobar que EMBED_MODEL existe en EMBED_PROVIDER antes de empezar ---
+# --- Preflight: comprobar que EMBED_MODEL existe en EMBED_PROVIDER antes de empezar ----------
 
 # Cortes de proveedor para el nombre de variable de caché (.env):
 # EMBED_DIM_MAX_OLLAMA / EMBED_DIM_MAX_HF / EMBED_DIM_MAX_GOOGLE
@@ -203,9 +237,9 @@ def _dim_max_cache(proveedor: str, meta: dict[str, str]) -> int | None:
 def _pre_online(proveedor: str, modelo: str, meta: dict[str, str]) -> dict[str, Any] | None:
     """
     Comprobación online de disponibilidad del modelo.
-    Returns dict con "disponible" (y opcionalmente "dim_modelo"), o None cuando
-    el proveedor no se puede comprobar online (red cortada, Ollama apagado,
-    sin API key) y hay que caer al caché de `.env`.
+    Returns dict con "disponible" (y opcionalmente "dim_modelo"), o None cuando el proveedor 
+    no se puede comprobar online (red cortada, Ollama apagado, sin API key) y hay que caer 
+    al caché de `.env`.
     """
     if proveedor == "ollama":
         base = meta.get("OLLAMA_BASE_URL") or OLLAMA_BASE_URL
@@ -227,8 +261,8 @@ def _pre_online(proveedor: str, modelo: str, meta: dict[str, str]) -> dict[str, 
     if proveedor == "huggingface":
         token = meta.get("HF_TOKEN") or HF_TOKEN
         try:
-            # repo_exists() ya distingue por sí solo: repo no existe => False,
-            # gateado sin acceso => True (existe). Excepciones = red cortada => se usa el caché.
+            # `repo_exists()` ya distingue por sí solo: repo no existe => `False`,
+            # gateado sin acceso => `TRue` (existe). Excepciones = red cortada => se usa el caché.
             return {"disponible": repo_exists(modelo, token=token)}
         except (requests.RequestException, OSError, ValueError):
             return None  # red cortada: se usa el caché de .env
@@ -244,7 +278,7 @@ def _pre_online(proveedor: str, modelo: str, meta: dict[str, str]) -> dict[str, 
             return None
         ids = [m.get("name", "").split("/")[-1] for m in r.json().get("models", [])]
         return {"disponible": any(modelo == m for m in ids)}
-    # Proveedor no soportado (config._resolver ya lo rechazó, pero por si acaso)
+    # Proveedor no soportado (`config._resolver` ya lo rechazó, pero por si acaso)
     raise ValueError(f"PREFLIGHT: EMBED_PROVIDER no soportado: {proveedor!r}")
 
 
@@ -295,7 +329,8 @@ def verificar_modelo_disponible(metadatos: dict[str, str] | None = None) -> Pref
         clave_cache = f"EMBED_DIM_MAX_{_PROVEEDOR_ABREV[proveedor]}"
         aviso = (
             f"PREFLIGHT: no se pudo verificar online {modelo!r} (red cortada / "
-            "sin API key). Se asume disponible vía caché de .env"
+            "sin API key). Se asume disponible vía caché de `.env` como funcionamiento "
+            "degradado."
             + (f" ({clave_cache}={dim_modelo})" if dim_modelo else f" ({clave_cache} no definido)")
         )
     else:

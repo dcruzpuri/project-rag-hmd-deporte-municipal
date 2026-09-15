@@ -109,7 +109,7 @@ Para el apartado "API de LLM y embeddings" se plantean tres proveedores distinto
 
 - **3 proveedores intercambiables por variable de entorno** (`EMBED_PROVIDER`): `ollama` (batch `/api/embed`), `huggingface` (`SentenceTransformer`, carga perezosa + caché), `google` (REST `batchEmbedContents`). Añadir un proveedor = +1 función + 1 línea en el dict `_PROVIDERS`.
 - **Coherencia de métrica**: embeddings normalizados + colección coseno → la similitud es coseno real en toda la cadena (embed, scoring, dedup, retrieval).
-- **Cap de dimensión por proveedor** (punto 5) y **preflight de disponibilidad** (punto 2), con caché offline vía `EMBED_DIM_MAX_OLLAMA` / `_HF` / `_GOOGLE`: el preflight declara la dim máxima que
+- **Tope máximo de dimensión por proveedor** (punto 5) y **preflight de disponibilidad** (punto 2), con caché offline vía `EMBED_DIM_MAX_OLLAMA` / `_HF` / `_GOOGLE`: el preflight declara la dim máxima que
   maneja el modelo incluso sin red ni API key.
 - **Export a JSON** (`embeddear` + `exportar_json`): volca `text+metadata+embedding` a `output/embeddings.json` para inspección/debug → ayuda al experimento de chunking del informe.
 - `embeddear_consulta(pregunta)` ya lista para la fase online (condición RAG: mismo modelo que al indexar), con la misma garantía de dim que el índice.

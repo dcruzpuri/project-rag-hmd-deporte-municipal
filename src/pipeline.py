@@ -257,7 +257,7 @@ def ejecutar_pipeline(
     parametros: list[tuple[str, Any, str]] = [
         ("EMBED_PROVIDER", EMBED_PROVIDER, "proveedor de embeddings"),
         ("EMBED_MODEL", EMBED_MODEL, "modelo de embeddings"),
-        ("EMBED_DIM", config.EMBED_DIM, "cap de dimensión (min(dim modelo, EMBED_DIM))"),
+        ("EMBED_DIM", config.EMBED_DIM, " dimensión máxima (min(dim modelo, EMBED_DIM))"),
         ("EMBED_BATCH_SIZE", EMBED_BATCH_SIZE, "tamaño de lote de embeddings"),
         ("TAG_PROVIDER", TAG_PROVIDER, "proveedor del etiquetado LLM"),
         ("TAG_MODEL", TAG_MODEL, "modelo del etiquetado LLM"),

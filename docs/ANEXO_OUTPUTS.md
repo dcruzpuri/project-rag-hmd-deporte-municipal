@@ -109,7 +109,7 @@ Ejecución de prueba sobre un corpus de 2 TXT, proveedor `ollama`, bloque TSD ac
 | Variable | Valor | Nota |
 | EMBED_PROVIDER | ollama | proveedor de embeddings |
 | EMBED_MODEL | qwen3-embedding:4b | modelo de embeddings |
-| EMBED_DIM | 4 | cap de dimensión (min(dim modelo, EMBED_DIM)) |
+| EMBED_DIM | 4 | Tope máximo de dimensión (min(dim modelo, EMBED_DIM)) |
 | ...
 | COSINE_SPACE | cosine | métrica de similitud |
 | recreate_index | True | la colección se borró antes de indexar |
