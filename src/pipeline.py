@@ -3,7 +3,8 @@ src/pipeline.py
 Encadena PREFLIGHT → LOAD → CLEAN → TAG → CHUNK → EMBED → SCORING → DEDUP → INDEX.
 PREFLIGHT garantiza que EMBED_MODEL esté disponible en EMBED_PROVIDER antes de empezar.
 Es el punto de entrada que importa tu aplicación [9].
-Al terminar genera un informe markdown (output/informe_indexacion.md) con los
+Al terminar genera un informe markdown
+(output/informe_index_<guid8_chroma>_aaaaMMdd_hhmm.md) con los
 parámetros aplicados y las métricas de la ejecución para la toma de decisiones.
 """
 import statistics
@@ -34,7 +35,7 @@ from config import (
 from .chunk import trocear
 from .clean import limpiar
 from .embed import embeddear, exportar_json, verificar_modelo_disponible
-from .index import indexar
+from .index import indexar, obtener_guid_chroma
 from .informe import generar_informe
 from .load import cargar_archivos
 from .tsd.dedup import deduplicar
@@ -235,6 +236,7 @@ def ejecutar_pipeline(
         collection_name=collection_name,
         recreate=recreate_index,
         )
+    guid_chroma = obtener_guid_chroma(persist_dir)
 
     if export_embeddings or EXPORT_EMBEDDINGS:
         exportar_json(chunks, embeddings)
@@ -323,6 +325,7 @@ def ejecutar_pipeline(
         "dedup": tsd.get("dedup"),
         "indice": {
             "nombre": collection_name or COLLECTION_NAME,
+            "guid_chroma": guid_chroma,
             "space": COSINE_SPACE,
             "dim": dim,
             "vectores_insertados": vivos,

@@ -123,7 +123,7 @@ def puntuar(chunks: list[Document], embeddings: list[list[float]],
                     "score_buenos_n": sum(1 for s in scores if s >= 0.6),
                     "chunks_n": len(scores),
                     "score_buenos_pct": round(
-                        sum(1 for s in scores if s >= 0.6) / len(scores) * 100, 4
+                        sum(1 for s in scores if s >= 0.6) / len(scores) * 100, 2
                     ),
                     "tiempo_s": round(time.perf_counter() - t0, 3),
                 }

@@ -3,108 +3,126 @@
     "id": 1,
     "pregunta": "¿Cuánto cuesta el abono de piscina?",
     "categoria_esperada": "tarifas",
-    "fuente_esperada": "300085-0-deportes_abonos.csv"
+    "fuente_esperada": "300085-0-deportes_abonos.csv",
+    "tags_esperados": ["abono", "piscina", "precio"]
   },
   {
     "id": 2,
     "pregunta": "¿Hay descuentos para menores, mayores, estudiantes o personas en paro?",
     "categoria_esperada": "tarifas",
-    "fuente_esperada": "300097-0-deportes-descuentos.csv"
+    "fuente_esperada": "300097-0-deportes-descuentos.csv",
+    "tags_esperados": ["descuento", "precio", "tarifa"]
   },
   {
     "id": 3,
     "pregunta": "¿Cuánto cuesta una entrada suelta (por día) para la piscina?",
     "categoria_esperada": "tarifas",
-    "fuente_esperada": "PreciosPublicos2026.pdf"
+    "fuente_esperada": "PreciosPublicos2026.pdf",
+    "tags_esperados": ["piscina", "tarifa", "precio"]
   },
   {
     "id": 4,
     "pregunta": "¿Cómo se adquiere el Abono Deporte Madrid (ADM)?",
     "categoria_esperada": "abonos",
-    "fuente_esperada": "300085-0-deportes_abonos.csv"
+    "fuente_esperada": "300085-0-deportes_abonos.csv",
+    "tags_esperados": ["abono", "inscripción"]
   },
   {
     "id": 5,
     "pregunta": "¿El abono de piscina es ilimitado o tiene un número máximo de días?",
     "categoria_esperada": "abonos",
-    "fuente_esperada": "300085-0-deportes_abonos.csv"
+    "fuente_esperada": "300085-0-deportes_abonos.csv",
+    "tags_esperados": ["abono", "piscina", "horario"]
   },
   {
     "id": 6,
     "pregunta": "¿Puedo comprar el abono online o tengo que ir a la instalación?",
     "categoria_esperada": "abonos",
-    "fuente_esperada": "300085-0-deportes_abonos.csv"
+    "fuente_esperada": "300085-0-deportes_abonos.csv",
+    "tags_esperados": ["abono", "inscripción"]
   },
   {
     "id": 7,
     "pregunta": "¿Puedo reservar siendo no empadronado?",
     "categoria_esperada": "reservas",
-    "fuente_esperada": "reglamento_instalaciones.pdf"
+    "fuente_esperada": "reglamento_instalaciones.pdf",
+    "tags_esperados": ["reserva", "empadronado"]
   },
   {
     "id": 8,
     "pregunta": "¿Qué pasa si cancelo una reserva con coste? ¿Me devuelven el dinero?",
     "categoria_esperada": "reservas",
-    "fuente_esperada": "DecretoAnulacionReservasConCoste.pdf"
+    "fuente_esperada": "DecretoAnulacionReservasConCoste.pdf",
+    "tags_esperados": ["cancelación", "devolución", "reserva", "tarifa"]
   },
   {
     "id": 9,
     "pregunta": "¿Hasta qué hora se puede cancelar una reserva sin que se aplique coste?",
     "categoria_esperada": "reservas",
-    "fuente_esperada": "DecretoAnulacionReservasConCoste.pdf"
+    "fuente_esperada": "DecretoAnulacionReservasConCoste.pdf",
+    "tags_esperados": ["cancelación", "reserva", "horario"]
   },
   {
     "id": 10,
     "pregunta": "¿Puedo usar las instalaciones si no soy residente de Madrid?",
     "categoria_esperada": "normativa",
-    "fuente_esperada": "reglamento_instalaciones.pdf"
+    "fuente_esperada": "reglamento_instalaciones.pdf",
+    "tags_esperados": ["empadronado", "instalación"]
   },
   {
     "id": 11,
     "pregunta": "¿Está permitido entrenar sin supervisión en la sala de musculación?",
     "categoria_esperada": "normativa",
-    "fuente_esperada": "reglamento_instalaciones.pdf"
+    "fuente_esperada": "reglamento_instalaciones.pdf",
+    "tags_esperados": ["instalación", "horario"]
   },
   {
     "id": 12,
     "pregunta": "¿Dónde puedo presentar una queja o reclamar sobre una instalación?",
     "categoria_esperada": "normativa",
-    "fuente_esperada": "reglamento_instalaciones.pdf"
+    "fuente_esperada": "reglamento_instalaciones.pdf",
+    "tags_esperados": ["instalación", "empadronado"]
   },
   {
     "id": 13,
     "pregunta": "¿Qué piscinas al aire libre están abiertas este verano?",
     "categoria_esperada": "instalaciones",
-    "fuente_esperada": "PiscinasAireLibre2026.pdf"
+    "fuente_esperada": "PiscinasAireLibre2026.pdf",
+    "tags_esperados": ["piscina", "aire_libre"]
   },
   {
     "id": 14,
     "pregunta": "¿Qué horarios tiene el polideportivo de mi barrio?",
     "categoria_esperada": "instalaciones",
-    "fuente_esperada": "200186-0-polideportivos.csv"
+    "fuente_esperada": "200186-0-polideportivos.csv",
+    "tags_esperados": ["instalación", "horario"]
   },
   {
     "id": 15,
     "pregunta": "¿Hay instalaciones adaptadas para personas con movilidad reducida?",
     "categoria_esperada": "instalaciones",
-    "fuente_esperada": "200186-0-polideportivos.csv"
+    "fuente_esperada": "200186-0-polideportivos.csv",
+    "tags_esperados": ["instalación", "accesibilidad"]
   },
   {
     "id": 16,
     "pregunta": "¿Cuándo se celebran los Juegos Deportivos Municipales 2026-2027?",
     "categoria_esperada": "agenda",
-    "fuente_esperada": "211549-0-juegos-deportivos-actual.txt"
+    "fuente_esperada": "211549-0-juegos-deportivos-actual.txt",
+    "tags_esperados": ["temporada"]
   },
   {
     "id": 17,
     "pregunta": "¿Cómo se inscribe un equipo o club en las competiciones municipales?",
     "categoria_esperada": "agenda",
-    "fuente_esperada": "normativaGeneral46jdm.pdf"
+    "fuente_esperada": "normativaGeneral46jdm.pdf",
+    "tags_esperados": ["inscripción", "competición"]
   },
   {
     "id": 18,
     "pregunta": "¿Cuándo empiezan las actividades deportivas de la temporada?",
     "categoria_esperada": "agenda",
-    "fuente_esperada": "212504-0-agenda-actividades-deportes.csv"
+    "fuente_esperada": "212504-0-agenda-actividades-deportes.csv",
+    "tags_esperados": ["temporada", "horario"]
   }
 ]

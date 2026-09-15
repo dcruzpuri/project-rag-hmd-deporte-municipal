@@ -16,6 +16,7 @@ from langchain_core.documents import Document
 
 from src.tsd.dedup import deduplicar
 from src.tsd.scoring import puntuar
+from src.tsd.tag import CATEGORIAS_VALIDAS
 
 
 def _docs(
@@ -105,6 +106,8 @@ class TestScoring:
         assert puntuar([], []) == []
 
 
+
+
 # ---------------------------------------------------------------------------
 # DEDUP
 # ---------------------------------------------------------------------------
@@ -168,6 +171,75 @@ class TestDedup:
         vecs = [[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0]]
         chunks, _ = deduplicar(docs, vecs, umbral=0.9)
         assert [c.page_content for c in chunks] == ["a", "b", "c"]
+
+    def test_volca_cobertura_por_categoria(self) -> None:
+        """info['dedup'].chunks_por_categoria: fija a la taxonomía cerrada (0 si no hay)."""
+        docs = [
+            Document(page_content=t, metadata={
+                "source": "a.csv", "doc_category": cat,
+            })
+            for cat, t in (
+                ("abonos", "uno"), ("abonos", "dos"), ("reservas", "tres"),
+                ("agenda", "cuatro"), ("sin categoria", "cinco"),
+            )
+        ]
+        vecs = [
+            [1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0],
+            [0.5, 0.5, 0.5, 0.5],
+        ]
+        info: dict = {}
+        deduplicar(docs, vecs, umbral=0.9, info=info)
+        cov = info["dedup"]["chunks_por_categoria"]
+        assert cov["abonos"] == {"pre": 2, "post": 2}
+        assert cov["reservas"] == {"pre": 1, "post": 1}
+        assert cov["agenda"] == {"pre": 1, "post": 1}
+        assert cov["tarifas"] == {"pre": 0, "post": 0}
+        assert set(cov) == CATEGORIAS_VALIDAS  # siempre las 6 cerradas
+
+    def test_cobertura_refleja_descartes_clon(self) -> None:
+        """Un clon descartado baja el post: pre 2 → post 1 en su categoría."""
+        docs = [
+            Document(page_content="A", metadata={
+                "source": "a.pdf", "semantic_score": 0.9, "doc_category": "reservas",
+            }),
+            Document(page_content="B clon", metadata={
+                "source": "a.pdf", "semantic_score": 0.5, "doc_category": "reservas",
+            }),
+            Document(page_content="C", metadata={
+                "source": "b.pdf", "semantic_score": 0.7, "doc_category": "abonos",
+            }),
+        ]
+        vecs = [[1.0, 0.0], [0.999, 0.01], [0.0, 1.0]]
+        info: dict = {}
+        deduplicar(docs, vecs, umbral=0.9, info=info)
+        assert info["dedup"]["chunks_por_categoria"]["reservas"] == {"pre": 2, "post": 1}
+
+    def test_volca_tags_top3_post(self) -> None:
+        """Top 3 tags post-dedup por nº de chunks (orden: recuento desc, luego alfabético)."""
+        docs = [
+            Document(page_content=t, metadata={
+                "source": "a.csv", "semantic_score": s,
+                **({tag: True} if tag else {}),
+            })
+            for t, s, tag in (
+                ("uno", 0.9, "tag_piscina"), ("dos", 0.8, "tag_piscina"),
+                ("tres", 0.7, "tag_reserva"), ("cuatro", 0.6, "tag_reserva"),
+                ("cinco", 0.5, None),
+            )
+        ]
+        vecs = [
+            [1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0],
+            [0.5, 0.5, 0.5, 0.5],
+        ]
+        info: dict = {}
+        deduplicar(docs, vecs, umbral=0.9, info=info)
+        assert info["dedup"]["tags_top3_post"] == [("piscina", 2), ("reserva", 2)]
+
+    def test_cobertura_sin_info_no_lanza(self) -> None:
+        docs = _docs(["a"])
+        deduplicar(docs, [[1.0, 0.0]])  # sin info: no volca, no rompe
 
 
 # ---------------------------------------------------------------------------

@@ -24,14 +24,39 @@ from config import (
 PROMPT = """Clasifica este documento sobre deporte municipal de Madrid.
 Devuelve SOLO JSON válido:
 {"categoria": "tarifas|normativa|reservas|abonos|instalaciones|agenda",
-"tags": ["máx. 6 de: abono, piscina, reserva, tarifa, horario,
-empadronado, descuento, competición, instalación, precio"],
+"tags": ["máx. 8 de: abono, piscina, reserva, tarifa, horario,
+empadronado, descuento, competición, instalación, precio, cancelación,
+devolución, accesibilidad, aire_libre, inscripción, temporada"],
 "relevancia": 0.0-1.0}
+Categorías (elige la intención DOMINANTE del documento):
+- tarifas: precios y coste de uso (abonos, entradas, bonificaciones).
+- reservas: intención de reservar, cancelar o devolver: quién puede
+  reservar, hasta cuándo se puede cancelar, cuánto cuesta cancelarlo y
+  devoluciones. Un texto que REGULA la reserva/cancelación (aunque su tono
+  sea normativo) va a reservas, no a normativa.
+- normativa: reglas de uso generales (acceso, quejas, supervisión),
+  cuando NO giran en torno a reservar/cancelar/devolver.
+- abonos: qué es un abono y cómo se adquiere/renewa; instalaciones: catálogos
+  de instalaciones; agenda: eventos y temporadas.
+Ejemplos de categoría: '¿Puedo reservar siendo no empadronado?', '¿Qué pasa
+si cancelo con coste?', '¿Hasta qué hora se puede cancelar sin coste?' -> reservas.
 Criterio de relevancia: utilidad para responder a preguntas como
 '¿Cuánto cuesta el abono de piscina?', '¿Puedes reservar siendo no empadronado?',
 tarifas, horarios y normas de uso.
 Texto:
 {text}"""
+
+# Taxonomía cerrada: el LLM debe elegir de estas listas; el parse filtra a
+# estos valores (la metadata del índice es filtrable en la fase online).
+CATEGORIAS_VALIDAS = frozenset({
+    "tarifas", "normativa", "reservas", "abonos", "instalaciones", "agenda",
+})
+TAGS_VALIDAS = frozenset({
+    "abono", "piscina", "reserva", "tarifa", "horario",
+    "empadronado", "descuento", "competición", "instalación", "precio",
+    "cancelación", "devolución", "accesibilidad", "aire_libre",
+    "inscripción", "temporada",
+})
 
 # Modelo de tagging según proveedor (se resuelve una sola vez, al importar)
 _MODELOS_TAG = {
@@ -117,10 +142,22 @@ def etiquetar(documentos: list[Document]) -> list[Document]:
             # LLM con JSON malformado: categoría por defecto en vez de romper el pipeline
             print(f"[TAG]   {fuente}: JSON malformado -> 'instalaciones' por defecto")
             d = {"categoria": "instalaciones", "tags": [], "relevancia": 0.5}
+        # Taxonomía cerrada: se filtra a los valores conocidos (la metadata del
+        # índice debe ser filtrable en la fase online; un tag libre la rompería).
+        categoria = d.get("categoria", "instalaciones")
+        if categoria not in CATEGORIAS_VALIDAS:
+            print(f"[TAG]   {fuente}: categoría {categoria!r} fuera de taxonomía -> 'instalaciones'")
+            categoria = "instalaciones"
+        tags = [t for t in d.get("tags", []) if t in TAGS_VALIDAS]
         meta = {
-            "doc_category": d.get("categoria", "instalaciones"),
-            "tags": ";".join(d.get("tags", [])),  # str: Chroma no acepta listas
+            "doc_category": categoria,
+            "tags": ";".join(tags),  # str: Chroma no acepta listas (lectura humana)
             "relevancia_llm": float(d.get("relevancia", 0.0)),
+            # Booleanos por tag (sparse: solo se escribe el tag presente).
+            # Chroma `where` soporta booleanos; la clave ausente no matchea,
+            # así la fase online (--query) filtra p. ej. con
+            # where={"tag_piscina": True} o where={"$and": [...]}.
+            **{f"tag_{t}": True for t in tags},
         }
         for otro in documentos:  # propagar a todas las páginas/filas de la fuente
             if otro.metadata.get("source") == fuente:

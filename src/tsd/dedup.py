@@ -26,8 +26,44 @@ import numpy as np
 from langchain_core.documents import Document
 
 from config import DEDUP_UMBRAL
+from src.tsd.tag import CATEGORIAS_VALIDAS
 
 _POLICIAS_EXACTAS = frozenset({"exact_only", "exact_key", "group_only"})
+
+
+def _cobertura_categoria(
+    chunks_pre: list[Document], chunks_post: list[Document]
+) -> dict[str, dict[str, int]]:
+    """Chunks por doc_category, fija a la taxonomía cerrada (las 6 siempre, pre/post).
+
+    Cubre el hueco del informe: una categoría a 0 post-dedup avisa de que la
+    intención primaria de esa fuente ya no responde a preguntas del dominio.
+    """
+    cov = {cat: {"pre": 0, "post": 0} for cat in sorted(CATEGORIAS_VALIDAS)}
+    for chunk in chunks_pre:
+        cat = chunk.metadata.get("doc_category")
+        if cat in cov:
+            cov[cat]["pre"] += 1
+    for chunk in chunks_post:
+        cat = chunk.metadata.get("doc_category")
+        if cat in cov:
+            cov[cat]["post"] += 1
+    return cov
+
+
+def _tags_top3(chunks_post: list[Document]) -> list[tuple[str, int]]:
+    """Top 3 tags (booleanos `tag_<nombre>`) por nº de chunks conservados.
+
+    Empates por nombre alfabético (orden determinista). La multi-facialidad ya
+    vive en la metadata; aquí solo se resume para la lectura del informe.
+    """
+    conteo: dict[str, int] = {}
+    for chunk in chunks_post:
+        for clave, val in chunk.metadata.items():
+            if clave.startswith("tag_") and val is True:
+                tag = clave[len("tag_"):]
+                conteo[tag] = conteo.get(tag, 0) + 1
+    return sorted(conteo.items(), key=lambda kv: (-kv[1], kv[0]))[:3]
 
 
 def _clave_exacta(chunk: Document) -> tuple:
@@ -102,7 +138,10 @@ def deduplicar(
     Args:
         umbral: umbral coseno de similitud para descartar duplicados.
         info: dict opcional donde se vuelcan las métricas del dedup
-            (para el informe de indexación).
+            (para el informe de indexación), incluyendo
+            «chunks_por_categoria» (las 6 de la taxonomía cerrada, pre/post)
+            y «tags_top3_post» (resumen compacto de la multi-facialidad
+            de los chunks conservados).
     """
     t0 = time.perf_counter()
     if not chunks:
@@ -137,6 +176,7 @@ def deduplicar(
 
     n_total = len(chunks)
     n_descartadas = n_total - len(kept_orden)
+    post_chunks = [chunks[i] for i in kept_orden]
     print(
         f"[DEDUP] umbral {umbral} -> descarta {n_descartadas} de {n_total} "
         f"({n_descartadas / n_total:.1%}) | passthrough (política exacta) "
@@ -153,5 +193,7 @@ def deduplicar(
             "descartados_total": n_descartadas,
             "descartados_pct": round(n_descartadas / n_total * 100, 1),
             "tiempo_s": round(time.perf_counter() - t0, 3),
+            "chunks_por_categoria": _cobertura_categoria(chunks, post_chunks),
+            "tags_top3_post": _tags_top3(post_chunks),
         }
-    return [chunks[i] for i in kept_orden], [embeddings[i] for i in kept_orden]
+    return post_chunks, [embeddings[i] for i in kept_orden]

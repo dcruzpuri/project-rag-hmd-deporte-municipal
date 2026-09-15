@@ -1,6 +1,7 @@
 """
 src/informe.py
-Genera el informe de indexación en markdown (por defecto ``output/informe_indexacion.md``)
+Genera el informe de indexación en markdown (por defecto
+``output/informe_index_<guid8_chroma>_aaaaMMdd_hhmm.md``)
 al finalizar el pipeline: todos los parámetros aplicados y las métricas de la
 ejecución (tiempos por fase, chunking, scoring, dedup, índice final) listas
 para la toma de decisiones.
@@ -57,6 +58,7 @@ def _scoring_md(scoring: dict[str, Any] | None, dedup: dict[str, Any] | None) ->
             "",
         ]
     lineas = ["## 6. TSD (scoring + dedup)", ""]
+    lineas += _cobertura_md(dedup)
     if scoring is not None:
         lineas += [
             "### 6.1 Scoring (`semantic_score`)",
@@ -91,6 +93,37 @@ def _scoring_md(scoring: dict[str, Any] | None, dedup: dict[str, Any] | None) ->
             f"| tiempo | {formatear_duracion(dedup.get('tiempo_s'))} | fase DEDUP |",
             "",
         ]
+    lineas += _cobertura_md(dedup)
+    return lineas
+
+
+def _cobertura_md(dedup: dict[str, Any] | None) -> list[str]:
+    """Sección 6.3 — cobertura por categoría (pre/post dedup) y top-3 de tags.
+
+    Solo se renderiza si TSD está activo y se volcó la cobertura; si no, no se
+    muestra (la multi-facialidad no existe sin etiquetado).
+    """
+    if dedup is None or "chunks_por_categoria" not in dedup:
+        return []
+    cov = dedup["chunks_por_categoria"]
+    if not cov:
+        return []
+    lineas = [
+        "### 6.3 Cobertura por categoría",
+        "",
+        "| categoría | pre | post (dedup) |",
+        "|---|---|---|",
+    ]
+    # La taxonomía cerrada ordena las 6 categorías fijas: si no están en el
+    # corpus, aparecen explícitamente como 0 (no se ocultan).
+    for cat in sorted(cov):
+        lineas.append(f"| {cat} | {cov[cat]['pre']} | {cov[cat]['post']} |")
+    top3 = dedup.get("tags_top3_post") or []
+    lineas.append(
+        f"> **top 3 tags (post):** "
+        f"{' · '.join(f'{t} ({n})' for t, n in top3) if top3 else '—'}"
+    )
+    lineas.append("")
     return lineas
 
 
@@ -126,6 +159,19 @@ def _senales(datos: dict[str, Any]) -> list[str]:
             "online, p. ej. red cortada). La dim usada es fiable solo si "
             "`EMBED_DIM_MAX_*` está declarada."
         )
+    cov = (dedup or {}).get("chunks_por_categoria") or {}
+    for cat in sorted(cov):
+        pre, post = cov[cat]["pre"], cov[cat]["post"]
+        if post == 0:
+            causa = (
+                f"ningún chunk en {cat} (0 pre): el corpus no cubre esa intención"
+                if pre == 0 else f"{pre} chunks entraron y todos fueron descartados"
+            )
+            s.append(
+                f"**Cobertura:** la categoría {cat} queda vacía post-dedup ({causa}): "
+                "las preguntas de esa intención no podrán responderse con este índice. "
+                "Añade corpus o revisa `DEDUP_UMBRAL`."
+            )
     if scoring is not None and scoring.get("score_buenos_pct", 100) < 50:
         s.append(
             f"Scoring: la distribución de `semantic_score` se concentra por debajo de 0.6 "
@@ -139,7 +185,7 @@ def _senales(datos: dict[str, Any]) -> list[str]:
     return [f"- {x}" for x in s]
 
 
-def generar_informe(datos: dict[str, Any], ruta: str | Path = "output/informe_indexacion.md") -> Path:
+def generar_informe(datos: dict[str, Any], ruta: str | Path | None = None) -> Path:
     """Escribe el informe markdown de indexación y devuelve su ruta.
 
     Args:
@@ -148,11 +194,17 @@ def generar_informe(datos: dict[str, Any], ruta: str | Path = "output/informe_in
             fases (tiempos por fase), resumen_fases (texto por fase), num_documentos,
             num_chunks_pre_dedup/post_dedup, chunk_stats, dim_embedding, dim_msg,
             preflight, indice (nombre/vectores/spacer), scoring, dedup.
-        ruta: ruta del informe (por defecto ``output/informe_indexacion.md``).
+        ruta: ruta del informe (por defecto
+            ``output/informe_index_<guid8_chroma>_aaaaMMdd_hhmm.md``, con la fecha y
+            hora locales de la ejecución).
 
     Returns:
         Ruta absoluta del informe escrito.
     """
+    if ruta is None:
+        guid_chroma = (datos.get("indice") or {}).get("guid_chroma")
+        sufijo = f"_{guid_chroma[:8]}" if guid_chroma else ""
+        ruta = f"output/informe_index{sufijo}_{datetime.now(timezone.utc).astimezone():%Y%m%d_%H%M}.md"
     ruta = Path(ruta)
     fases: dict[str, float] = datos.get("fases") or {}
     resumen_fases: dict[str, str] = datos.get("resumen_fases") or {}
