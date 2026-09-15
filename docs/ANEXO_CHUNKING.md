@@ -13,7 +13,7 @@ El presente documento describe el procedimiento para modificar el nivel de chunk
 
 ## 3. Regla fundamental
 
-Cualquier modificación del splitter o de `CHUNK_SIZE`/`CHUNK_OVERLAP` exige la **regeneración completa del índice**. Los vectores almacenados son función directa del texto troceado; un índice no regenerado tras el cambio produce resultados inválidos .
+**◬ ATENCIÓN**: Cualquier modificación del splitter o de `CHUNK_SIZE`/`CHUNK_OVERLAP` exige la **regeneración completa del índice**. Los vectores almacenados son función directa del texto troceado; un índice no regenerado tras el cambio produce resultados inválidos .
 
 ## 4. Estado inicial del sistema
 
@@ -40,7 +40,7 @@ Cualquier modificación del splitter o de `CHUNK_SIZE`/`CHUNK_OVERLAP` exige la 
 
 ### 5.1. Preparación
 
-1.  Se fijará el corpus (`data/`) y el conjunto de preguntas de evaluación, que deberán permanecer invariantes durante el experimento .
+1.  Se fijará el directorio de trabajo del corpus (`data/`) y el conjunto de preguntas de evaluación, que deberán permanecer invariantes durante el experimento .
     
 2.  Se obtendrá un snapshot de referencia (nº de chunks, margen de coherencia, hit-rate) mediante:
     
@@ -49,18 +49,18 @@ Cualquier modificación del splitter o de `CHUNK_SIZE`/`CHUNK_OVERLAP` exige la 
     python -m scripts.eval_coherencia_chunks
     ```
     
-3.  Se documentará en el informe el valor inicial de `CHUNK_SIZE`/`CHUNK_OVERLAP` y el splitter empleado.
+3.  Se documentará en el informe el valor inicial de `CHUNK_SIZE`/`CHUNK_OVERLAP` y el splitter empleado (se registra automáticamente en el `output/informe_index_(...).md` correspondiente).
     
 
 ### 5.2. Aplicación del cambio
 
 Según el objetivo:
 
-*   **Ajuste de parámetros (mismo nivel):** cambio en `.env` (global) o por parámetro de `trocear` (puntual). La comprobación es `is not None`, por lo que `chunk_overlap=0` es un valor válido y respeta el 0 .
+*   **Ajuste de parámetros (mismo nivel):** cambio en `.env` (global) o por parámetro de `trocear` (puntualmente al llamarlo por comando). La comprobación es `is not None`, por lo que `chunk_overlap=0` es un valor válido y respeta el 0 .
     
 *   **Nivel 1 (contraste):** sustitución del bloque del splitter en `src/chunk.py` por `CharacterTextSplitter` .
     
-*   **Nivel 3 (Document-specific):** selección del splitter por extensión manteniendo la firma de `trocear` (p. ej. `MarkdownTextSplitter` para `.md`) . Las tablas de PDF requieren Unstructured (no instalado) y un pipeline de ingesta distinto; no se implementa hasta que el eval lo pida .
+*   **Nivel 3 (Document-specific):** selección del splitter por extensión manteniendo la firma de `trocear` (p. ej. `MarkdownTextSplitter` para `.md`). Las tablas de PDF requieren Unstructured (no instalado) y un pipeline de ingesta distinto; no se implementa hasta que el eval lo pida .
     
 *   **Nivel 4 (Semantic):** implementación de breakpoints por similitud coseno entre frases adyacentes con `embeddear` y `numpy`; umbral sugerido 0.20–0.25 (más bajo = más breakpoints) .
     
@@ -69,10 +69,17 @@ Según el objetivo:
 
 ### 5.3. Regeneración del índice
 
+En Python ejecutar:
+
 ```python
 ejecutar_pipeline("./data", recreate_index=True)
 ```
 
+Equivalente directo por consola:
+
+```powershell
+python main.py ./data --recreate-index
+```
 
 
 ### 5.4. Validación (obligatoria)
@@ -96,7 +103,7 @@ Se adoptará un nivel superior únicamente si el eval evidencia una mejora medib
 
 | Error | Consecuencia | Resolución |
 | --- | --- | --- |
-| Modificar el splitter o `CHUNK_SIZE`/`CHUNK_OVERLAP` sin regenerar el índice | Vectores obsoetos sobre un corte nuevo; resultados de retrieval inválidos | Regenerar con `ejecutar_pipeline(..., recreate_index=True)`  |
+| Modificar el splitter o `CHUNK_SIZE`/`CHUNK_OVERLAP` sin regenerar el índice | Vectores obsoletos sobre un corte nuevo; resultados de retrieval inválidos | Regenerar con `ejecutar_pipeline(..., recreate_index=True)`  |
 | Cambiar el corpus o las preguntas de eval durante el experimento | Resultados no comparables; experimento no reproducible | Fijar corpus y preguntas antes de empezar y guardar el snapshot de referencia  |
 | Pasar `chunk_overlap=0` esperando que se aplique el valor por defecto | Confusión sobre el parámetro efectivo (el 0 se respeta) | La comprobación es `is not None`: para aplicar el default, omitir el parámetro  |
 | Cambiar el modelo de embeddings sin regenerar el índice | Índice incompatible con los nuevos vectores | Regenerar el índice desde cero  |
@@ -106,15 +113,24 @@ Se adoptará un nivel superior únicamente si el eval evidencia una mejora medib
 | Margen de coherencia < 0.05 tras el cambio | Overlap insuficiente; pérdida de coherencia temática | Aumentar `CHUNK_OVERLAP` o reducir `CHUNK_SIZE` y revalidar  |
 | Aplicar el nivel 5 (Agentic) como camino principal | Índice lento, caro y no reproducible | Descartar; solo como experimento opcional documentado  |
 | No documentar nivel, parámetros y métricas tras el cambio | Experimento no reproducible; memoria incompleta | Documentar en `entregables/informe_decisiones.md` según punto 5.4  |
+| Modificar la lista de separadores de `RecursiveCharacterTextSplitter` (p. ej., usar la por defecto) | Cortes distintos a los del índice actual; vectores obsoletos | Regenerar el índice y revalidar coherencia  |
+| Fijar `CHUNK_OVERLAP` >= `CHUNK_SIZE` | `ValueError` en el splitter o chunks degenerados | Mantener overlap < size y revalidar margen y distribución  |
+| Cambiar `CHUNK_SIZE` sin revisar `CHUNK_OVERLAP` | El ratio de overlap cambia y puede romperse la coherencia | Recalcular el overlap y revalidar margen > 0.05  |
+| Cambiar el valor de K entre ejecuciones del eval | Métricas de retrieval no comparables entre runs | Fijar al menos 2 valores de K en todas las ejecuciones y documentarlos  |
+| Aplicar `MarkdownTextSplitter` a archivos no Markdown (p. ej., PDF) | Pérdida de estructura o cortes incorrectos | Seleccionar el splitter por extensión dentro de `trocear`; las tablas de PDF requieren Unstructured  |
+| Modificar `scripts/eval_coherencia_chunks.py` durante el experimento | Métricas no comparables con el snapshot de referencia | No tocar el script de eval durante el experimento; documentar cualquier cambio posterior  |
 
 ## 8. Tabla de consulta rápida
 
 | Operación | Modificación | Regeneración del índice |
 | --- | --- | --- |
-| Ajuste de tamaño (misma estrategia) | `.env` o parámetro de `trocear` | Obligatoria  |
-| Contraste con nivel 1 | Splitter en `src/chunk.py` | Obligatoria  |
-| Estructura Markdown | Loader por extensión + `MarkdownTextSplitter` | Obligatoria  |
-| Breakpoints semánticos | Función de embeddings (numpy) + `embeddear` | Obligatoria  |
+| Ajuste de parámetros (misma estrategia) | `CHUNK_SIZE`/`CHUNK_OVERLAP` en `.env` o parámetro de `trocear` | Obligatoria  |
+| Contraste con nivel 1 | `CharacterTextSplitter` en `src/chunk.py` | Obligatoria  |
+| Cambio de separadores (nivel 2) | Lista de separadores de `RecursiveCharacterTextSplitter` en `src/chunk.py` | Obligatoria  |
+| Estructura Markdown (nivel 3) | Loader por extensión + `MarkdownTextSplitter` | Obligatoria  |
+| Breakpoints semánticos (nivel 4) | Función de embeddings (numpy) + `embeddear` | Obligatoria  |
+| Agentic (nivel 5) | Implementación en `src/chunk.py` | Obligatoria **(nivel no recomendado)**  |
+| Cambio de modelo de embeddings | `config.py`/`.env` | Obligatoria (desde cero)  |
 | Cierre definitivo | — | Una única vez, al final  |
 
-**Si se modifica el modelo de embeddings o los límites del índice: se regenera el índice desde cero**.
+**◬ IMPORTANTE:** Si se modifica el modelo de embeddings o los límites del índice: ha de regenerarse el índice desde cero.

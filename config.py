@@ -99,8 +99,3 @@ DEDUP_UMBRAL: float = float(os.getenv("DEDUP_UMBRAL", "0.93"))  # punto de parti
 CHROMA_DIR: str = os.getenv("CHROMA_DIR", "./output/chroma_db")
 COLLECTION_NAME: str = os.getenv("COLLECTION_NAME", "deporte_municipal")
 COSINE_SPACE: str = "cosine"
-
-
-
-
-

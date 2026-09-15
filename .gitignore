@@ -218,8 +218,8 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Carpetas y archivos del proyecto
+.gitignore
 output/
 ENUNCIADO.md
 GUIA.html
-HIGHLIGHTS_CORPUS_DATA.md
-.gitignore
+.playwright-mcp

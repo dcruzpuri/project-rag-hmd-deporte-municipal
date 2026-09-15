@@ -58,13 +58,13 @@ def main():
     margen = mean_ad - mean_al
 
     print(f"\n{'='*50}")
-    print("  COHERENCIA SEMÁNTICA DE CHUNKS")
+    print("⇆  COHERENCIA SEMÁNTICA DE CHUNKS")
     print(f"{'='*50}")
     print(f"  Sim. media adyacentes:  {mean_ad:.4f}")
     print(f"  Sim. media aleatorios:  {mean_al:.4f}")
-    print(f"  Margen (ady − aleat):   {margen:+.4f}")
+    print(f"  Margen (adyac − aleat):   {margen:+.4f}")
     print(f"{'='*50}")
-    print("  Interpretación: un margen > 0.05 indica que el overlap")
+    print("  Interpretación: un margen > 0.05 indica que el overlap definido")
     print("  mantiene coherencia temática entre chunks adyacentes.")
     print("  Un margen similar a 0 sugiere cortes arbitrarios (semántica comprometida o partida).")
 
