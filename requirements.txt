@@ -24,7 +24,7 @@ huggingface-hub>=0.34
 
 
 # Streamlit (UI)
-streamlit>=1.63.0
+streamlit>=1.37.0
 
 
 # Utilidades

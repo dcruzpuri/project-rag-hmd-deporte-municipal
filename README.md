@@ -1,3 +1,8 @@
+# project-rag-hmd-deporte-municipal
+
+La interfaz web permite interactuar con el sistema RAG de forma visual.
+
+## Paso 0 — Instalación y arranque
 # Retrieval Augmented Generation (RAG) para Deporte Municipal del Ayuntamiento de Madrid
 
 Sistema **RAG (Retrieval Augmented Generation)** para responder preguntas basadas en recuperación de contenido sobre documentos de **deporte municipal de Madrid**: tarifas, abonos, reservas, horarios e instalaciones.
@@ -69,6 +74,7 @@ Funciones de cada archivo (firmas y comportamiento): [`docs/ANEXO_FUNC.md`](docs
 ```bash
 git clone https://github.com/dcruzpuri/project-rag-hmd-deporte-municipal.git
 cd project-rag-hmd-deporte-municipal
+python3 -m venv .venv
 ```
 
 ### 2. Crea el entorno virtual e instala dependencias
@@ -89,6 +95,17 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Paso 1 — Ejecutar la app
+
+```bash
+streamlit run app.py
+```
+
+### Funcionalidades
+- Chat con historial de conversación
+- Contexto y chunks recuperados visibles
+- Métricas por consulta (TOP_K, nº chunks, tiempo, modelo)
+- Selector de TOP_K en el sidebar
 ### 3. Configura `.env`
 
 ```bash
