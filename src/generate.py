@@ -28,23 +28,42 @@ except ImportError:
     GEN_TEMPERATURE = 0.2
 
 
-def _generar_google(prompt: str) -> str:
-    """Generación con Gemini vía SDK google-genai."""
+import time
+
+def _generar_google(prompt: str, max_intentos: int = 3) -> str:
+    """Generación con Gemini vía SDK google-genai, con retry ante 503/429."""
     if not GOOGLE_API_KEY:
         raise RuntimeError(
             "GOOGLE_API_KEY no está definida en .env. "
             "Configúrala antes de generar respuestas."
         )
     client = genai.Client(api_key=GOOGLE_API_KEY)
-    response = client.models.generate_content(
-        model=GEN_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(temperature=GEN_TEMPERATURE),
-    )
-    texto = (response.text or "").strip()
-    if not texto:
-        raise RuntimeError("Gemini devolvió una respuesta vacía.")
-    return texto
+    
+    ultimo_error: Exception | None = None
+    for intento in range(1, max_intentos + 1):
+        try:
+            response = client.models.generate_content(
+                model=GEN_MODEL,
+                contents=prompt,
+                config=types.GenerateContentConfig(temperature=GEN_TEMPERATURE),
+            )
+            texto = (response.text or "").strip()
+            if not texto:
+                raise RuntimeError("Gemini devolvió una respuesta vacía.")
+            return texto
+        except Exception as e:
+            ultimo_error = e
+            mensaje = str(e)
+            # Reintentar solo en errores transitorios
+            es_transitorio = any(
+                codigo in mensaje for codigo in ("503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED")
+            )
+            if not es_transitorio or intento == max_intentos:
+                raise
+            espera = 2 ** intento  # 2s, 4s, 8s
+            print(f"[RAG] [WARN] Error transitorio de Gemini ({intento}/{max_intentos}): reintentando en {espera}s")
+            time.sleep(espera)
+    raise RuntimeError(f"Fallo tras {max_intentos} intentos: {ultimo_error}")
 
 
 # Dispatch por proveedor: añadir uno nuevo = una función + una línea aquí
