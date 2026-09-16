@@ -1,9 +1,10 @@
 """
 src/load.py
 Abstrae el formato: PDF, TXT, MD, CSV -> lista de LangChain Documents.
+El CSV no se convierte aquí: ``csv_transform.py`` aplica el consejo del
+advisor de ``csv_advisor.py`` (entidad, grupo o fila por documento).
 """
 
-import csv
 import os
 from pathlib import Path
 from collections.abc import Callable
@@ -11,10 +12,24 @@ from collections.abc import Callable
 from langchain_core.documents import Document
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 
+from .csv_transform import transform_csv
+
+
+def _normalizar_source(documentos: list[Document], ruta: str) -> list[Document]:
+    """source = os.path.basename(ruta) SIEMPRE (coherencia de metadata por clave
+    de fuente: dedup, ids y matching de fuente_esperada en el eval).
+
+    TextLoader/PyPDFLoader fijan la ruta completa (con data\\ en Windows);
+    si el loader ya dejó un source limpio (p. ej. los CSV), no se toca.
+    """
+    for d in documentos:
+        d.metadata["source"] = os.path.basename(ruta)
+    return documentos
+
 
 def _load_pdf(path: str) -> list[Document]:
     loader = PyPDFLoader(path)
-    return loader.load()
+    return _normalizar_source(loader.load(), path)
 
 
 # En orden de preferencia. cp1252 mapea mejor que latin-1 los guiones y
@@ -41,24 +56,16 @@ def _detectar_encoding(path: str) -> str:
 
 def _load_text(path: str) -> list[Document]:
     loader = TextLoader(path, encoding=_detectar_encoding(path))
-    return loader.load()
+    return _normalizar_source(loader.load(), path)
 
 
 def _load_csv(path: str) -> list[Document]:
     """
-    CSV de eventos: una fila = un documento.
-    Convierte cada fila en un texto plano legible.
+    CSV de eventos: csv_advisor.py decide el tratamiento según la estructura
+    (entidad / grupo de hechos / texto plano) y csv_transform.py lo aplica.
+    Aquí solo delegamos: load.py es un lector, no inventa transformaciones.
     """
-    docs: list[Document] = []
-    with open(path, newline="", encoding=_detectar_encoding(path)) as f:
-        reader = csv.DictReader(f)
-        for i, row in enumerate(reader):
-            text = " | ".join(f"{k}: {v}" for k, v in row.items() if v)
-            docs.append(Document(
-                page_content=text,
-                metadata={"source": os.path.basename(path), "row": i},
-            ))
-    return docs
+    return _normalizar_source(transform_csv(path), path)
 
 # Registro extensión: - loader
 Loader = Callable[[str], list[Document]]

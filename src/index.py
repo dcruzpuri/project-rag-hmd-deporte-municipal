@@ -1,16 +1,36 @@
 """
 src/index.py
-Carga los embeddings en ChromaDB (base vectorial local y ligera) [6].
+Carga los embeddings en ChromaDB (base vectorial local y ligera).
 """
 import chromadb
 from chromadb.config import Settings
 from chromadb.errors import NotFoundError
+from pathlib import Path
+from typing import Any
+from uuid import UUID
 
 from config import CHROMA_DIR, COLLECTION_NAME, COSINE_SPACE
 
 # Máximo de registros por llamada add(): el límite del backend varía con el
 # tamaño de los vectores (chroma calcula = dim × bytes de tope). Con 2000 da margen.
 _BATCH_ADD = 2_000
+
+
+def obtener_guid_chroma(persist_dir: str | None = None) -> str | None:
+    """Devuelve el GUID de la carpeta de datos creada por ChromaDB."""
+    directorio = Path(persist_dir or CHROMA_DIR)
+    if not directorio.is_dir():
+        return None
+    for candidato in directorio.iterdir():
+        if not candidato.is_dir():
+            continue
+        try:
+            UUID(candidato.name)
+        except ValueError:
+            continue
+        if any(candidato.iterdir()):
+            return candidato.name
+    return None
 
 
 def obtener_cliente_chroma(persist_dir: str | None = None) -> chromadb.ClientAPI:
@@ -29,8 +49,8 @@ def crear_coleccion(client, nombre: str | None = None):
     )
 
 
-# Sanitizar metadatos: Chroma no acepta None ni listas [6]
-def _sanear(meta: dict) -> dict:
+# Sanitizar metadatos: Chroma no acepta None ni listas
+def _sanear(meta: dict[str, Any]) -> dict[str, Any]:
     limpio = {}
     for k, v in meta.items():
         if v is None:
@@ -46,12 +66,17 @@ def indexar(
     ids: list[str],
     embeddings: list[list[float]],
     documents: list[str],
-    metadatos: list[dict],
+    metadatos: list[dict[str, Any]],
     persist_dir: str | None = None,
     collection_name: str | None = None,
     recreate: bool = False,
-) -> None:
-    """Inserta vectores + texto + metadata en ChromaDB."""
+) -> tuple[int, int]:
+    """Inserta vectores + texto + metadata en ChromaDB.
+
+    Returns:
+        (vectores_insertados, vectores_totales_colección): la inserción
+        verificada (ids vivos) y el recuento total de la colección.
+    """
     client = obtener_cliente_chroma(persist_dir)
     nombre = collection_name or COLLECTION_NAME
     if recreate:
@@ -87,4 +112,6 @@ def indexar(
     assert vivos == n_unicos, (
         f"Desajuste en nº de vectores: {vivos} vivos de {n_unicos} insertados"
     )
-    print(f"[INDEX] colección '{collection.name}': {collection.count()} vectores ({vivos} en esta inserción)")
+    totales = collection.count()
+    print(f"[INDEX] colección '{collection.name}': {totales} vectores ({vivos} en esta inserción)")
+    return vivos, totales
