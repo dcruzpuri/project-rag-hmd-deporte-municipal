@@ -73,6 +73,18 @@ CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "1000"))
 CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "150"))
 
 
+# --- Retrieval (online) ---
+TOP_K: int = int(os.getenv("TOP_K", "5"))
+MAX_CHUNKS: int = int(os.getenv("MAX_CHUNKS", "5"))
+
+# --- Generación (online) ---
+GEN_TEMPERATURE: float = float(os.getenv("GEN_TEMPERATURE", "0.2"))
+ABSTENTION_MESSAGE: str = os.getenv(
+    "ABSTENTION_MESSAGE",
+    "No dispongo de esa información en los documentos proporcionados.",
+)
+
+
 # --- Embeddings ---
 EMBED_DIM: int = int(os.getenv("EMBED_DIM", "384"))  # 384 (all-MiniLM) / 3072 (gemini)
 EMBED_BATCH_SIZE: int = int(os.getenv("EMBED_BATCH_SIZE", "30"))
