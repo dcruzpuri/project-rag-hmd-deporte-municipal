@@ -23,6 +23,8 @@ _SUBMODULOS_LIGEROS: dict[str, str] = {
     "embed": "embed",
     "index": "index",
     "pipeline": "pipeline",
+    "csv_advisor": "csv_advisor",
+    "csv_transform": "csv_transform",
 }
 
 __all__ = [
@@ -33,10 +35,12 @@ __all__ = [
     "embed",
     "index",
     "pipeline",
+    "csv_advisor",
+    "csv_transform",
 ]
 
 if TYPE_CHECKING:
-    from . import chunk, clean, embed, index, load, pipeline
+    from . import chunk, clean, csv_advisor, csv_transform, embed, index, load, pipeline
 
 def __getattr__(name: str):
     """Importa de manera ligera los submódulos cuando son accedidos por primera vez.

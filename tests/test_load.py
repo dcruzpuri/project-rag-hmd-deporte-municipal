@@ -16,7 +16,7 @@ from src.load import _detectar_encoding, _load_csv
 
 @pytest.fixture
 def tmp_csv(tmp_path: Path) -> Callable[[bytes], str]:
-    """Devuelve un helper para crear CSVs con los bytes dados."""
+    """Devuelve ayudante para crear CSVs con los bytes dados."""
 
     def _h(data: bytes, name: str = "fixture.csv") -> str:
         p = tmp_path / name
@@ -80,3 +80,35 @@ class TestLoadText:
         docs = _load_text(ruta)
         assert len(docs) == 1
         assert "Piscina" in docs[0].page_content
+
+
+class TestLoadSource:
+    """source = basename limpio en TODOS los loaders y en cargar_archivos:
+    sin prefijo de carpeta ni ruta con separador del SO (dedup/id/coherencia
+    de metadata por clave de fuente)."""
+
+    def test_load_txt_ruta_absoluta_source_es_basename(self, tmp_csv: Callable[[bytes], str]) -> None:
+        from src.load import _load_text
+
+        ruta = tmp_csv("Piscina: 5 €/día.\n".encode("utf-8"), name="fixture.txt")
+        docs = _load_text(ruta)
+        assert all(d.metadata["source"] == "fixture.txt" for d in docs)
+
+    def test_load_csv_ruta_absoluta_source_es_basename(self, tmp_csv: Callable[[bytes], str]) -> None:
+        ruta = tmp_csv("nombre\nCalle Añaña\n".encode("utf-8"), name="fixture2.csv")
+        docs = _load_csv(ruta)
+        assert all(d.metadata["source"] == "fixture2.csv" for d in docs)
+
+    def test_cargar_archivos_ruta_absoluta_source_es_basename(self, tmp_csv: Callable[[bytes], str]) -> None:
+        from src.load import cargar_archivos
+
+        ruta = tmp_csv("contenido prueba\n".encode("utf-8"), name="fixture3.txt")
+        docs = cargar_archivos([ruta])
+        assert {d.metadata["source"] for d in docs} == {"fixture3.txt"}
+
+    def test_cargar_archivos_dir_sin_sep_en_source(self, tmp_csv: Callable[[bytes], str]) -> None:
+        from src.load import cargar_archivos
+
+        ruta = tmp_csv("contenido prueba\n".encode("utf-8"), name="fixture4.txt")
+        docs = cargar_archivos([Path(ruta).parent])
+        assert all(d.metadata["source"] == "fixture4.txt" for d in docs)

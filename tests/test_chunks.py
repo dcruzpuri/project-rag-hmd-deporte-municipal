@@ -26,13 +26,13 @@ def texto_corto():
 
 @pytest.fixture
 def texto_medio():
-    """~2x CHUNK_SIZE → debe dar 2-3 chunks."""
+    """aprox. 2x CHUNK_SIZE → debe dar 2-3 chunks."""
     parrafo = "El abono deportivo de Madrid incluye acceso a todas las instalaciones. "
     return (parrafo * 5).strip()  # ~800 chars
 
 @pytest.fixture
 def texto_largo():
-    """~10x CHUNK_SIZE → debe dar ≥ 8 chunks."""
+    """aprox. 10x CHUNK_SIZE → debe dar ≥ 8 chunks."""
     parrafo = (
         "La normativa deportiva municipal establece que los residentes de Madrid "
         "tienen derecho a tarifas reducidas en todas las instalaciones deportivas "

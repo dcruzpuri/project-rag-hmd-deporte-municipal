@@ -77,6 +77,19 @@ CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "150"))
 EMBED_DIM: int = int(os.getenv("EMBED_DIM", "384"))  # 384 (all-MiniLM) / 3072 (gemini)
 EMBED_BATCH_SIZE: int = int(os.getenv("EMBED_BATCH_SIZE", "30"))
 EXPORT_EMBEDDINGS: bool = os.getenv("EXPORT_EMBEDDINGS", "true").lower() == "true"
+# Caché offline del preflight de disponibilidad (src/embed.py): máxima
+# dimensión que maneja el modelo cuando la comprobación online no se puede
+# hacer (red cortada / sin API key). Vacío = no declarado (dim modelo = None).
+#   EMBED_DIM_MAX_OLLAMA / EMBED_DIM_MAX_HF / EMBED_DIM_MAX_GOOGLE
+def _dim_max(proveedor: str) -> int | None:
+    abrev = {"ollama": "OLLAMA", "huggingface": "HF", "google": "GOOGLE"}[proveedor]
+    raw = (os.getenv(f"EMBED_DIM_MAX_{abrev}") or "").strip()
+    return int(raw) if raw else None
+
+
+EMBED_DIM_MAX_OLLAMA: int | None = _dim_max("ollama")
+EMBED_DIM_MAX_HF: int | None = _dim_max("huggingface")
+EMBED_DIM_MAX_GOOGLE: int | None = _dim_max("google")
 
 # --- TSD: tagging + scoring + dedup ---
 TAG_SCORING_DEDUP: bool = os.getenv("TAG_SCORING_DEDUP", "true").lower() == "true"
@@ -86,8 +99,3 @@ DEDUP_UMBRAL: float = float(os.getenv("DEDUP_UMBRAL", "0.93"))  # punto de parti
 CHROMA_DIR: str = os.getenv("CHROMA_DIR", "./output/chroma_db")
 COLLECTION_NAME: str = os.getenv("COLLECTION_NAME", "deporte_municipal")
 COSINE_SPACE: str = "cosine"
-
-
-
-
-
