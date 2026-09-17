@@ -1,0 +1,138 @@
+[
+  {
+    "id": 1,
+    "pregunta": "¿Cuánto cuesta el abono de piscina?",
+    "categoria_esperada": "tarifas",
+    "fuente_esperada": "300085-0-deportes_abonos.csv"
+  },
+  {
+    "id": 2,
+    "pregunta": "¿Hay descuentos para menores, mayores, estudiantes o personas en paro?",
+    "categoria_esperada": "tarifas",
+    "fuente_esperada": "300097-0-deportes-descuentos.csv"
+  },
+  {
+    "id": 3,
+    "pregunta": "¿Cuánto cuesta una entrada suelta (por día) para la piscina?",
+    "categoria_esperada": "tarifas",
+    "fuente_esperada": "PreciosPublicos2026.pdf"
+  },
+  {
+    "id": 4,
+    "pregunta": "¿Quién ganó el Mundial de fútbol en 2026?",
+    "categoria_esperada": "out_of_corpus",
+    "fuente_esperada": null,
+    "out_of_corpus": true
+  },
+  {
+    "id": 5,
+    "pregunta": "¿Cómo se adquiere el Abono Deporte Madrid (ADM)?",
+    "categoria_esperada": "abonos",
+    "fuente_esperada": "300085-0-deportes_abonos.csv"
+  },
+  {
+    "id": 6,
+    "pregunta": "¿El abono de piscina es ilimitado o tiene un número máximo de días?",
+    "categoria_esperada": "abonos",
+    "fuente_esperada": "300085-0-deportes_abonos.csv"
+  },
+  {
+    "id": 7,
+    "pregunta": "¿Puedo comprar el abono online o tengo que ir a la instalación?",
+    "categoria_esperada": "abonos",
+    "fuente_esperada": "300085-0-deportes_abonos.csv"
+  },
+  {
+    "id": 8,
+    "pregunta": "¿Puedo reservar siendo no empadronado?",
+    "categoria_esperada": "reservas",
+    "fuente_esperada": "reglamento_instalaciones.pdf"
+  },
+  {
+    "id": 9,
+    "pregunta": "¿Cómo puedo hacer una dieta paleolítica?",
+    "categoria_esperada": "out_of_corpus",
+    "fuente_esperada": null,
+    "out_of_corpus": true
+  },
+  {
+    "id": 10,
+    "pregunta": "¿Qué pasa si cancelo una reserva con coste? ¿Me devuelven el dinero?",
+    "categoria_esperada": "reservas",
+    "fuente_esperada": "DecretoAnulacionReservasConCoste.pdf"
+  },
+  {
+    "id": 11,
+    "pregunta": "¿Hasta qué hora se puede cancelar una reserva sin que se aplique coste?",
+    "categoria_esperada": "reservas",
+    "fuente_esperada": "DecretoAnulacionReservasConCoste.pdf"
+  },
+  {
+    "id": 12,
+    "pregunta": "¿Puedo usar las instalaciones si no soy residente de Madrid?",
+    "categoria_esperada": "normativa",
+    "fuente_esperada": "reglamento_instalaciones.pdf"
+  },
+  {
+    "id": 13,
+    "pregunta": "¿Está permitido entrenar sin supervisión en la sala de musculación?",
+    "categoria_esperada": "normativa",
+    "fuente_esperada": "reglamento_instalaciones.pdf"
+  },
+  {
+    "id": 14,
+    "pregunta": "¿Cuándo ganó el Real Madrid su última liga?",
+    "categoria_esperada": "out_of_corpus",
+    "fuente_esperada": null,
+    "out_of_corpus": true
+  },
+  {
+    "id": 15,
+    "pregunta": "¿Dónde puedo presentar una queja o reclamar sobre una instalación?",
+    "categoria_esperada": "normativa",
+    "fuente_esperada": "reglamento_instalaciones.pdf"
+  },
+  {
+    "id": 16,
+    "pregunta": "¿Qué piscinas al aire libre están abiertas este verano?",
+    "categoria_esperada": "instalaciones",
+    "fuente_esperada": "PiscinasAireLibre2026.pdf"
+  },
+  {
+    "id": 17,
+    "pregunta": "¿Qué horarios tiene el polideportivo de mi barrio?",
+    "categoria_esperada": "instalaciones",
+    "fuente_esperada": "200186-0-polideportivos.csv"
+  },
+  {
+    "id": 18,
+    "pregunta": "¿Hay instalaciones adaptadas para personas con movilidad reducida?",
+    "categoria_esperada": "instalaciones",
+    "fuente_esperada": "200186-0-polideportivos.csv"
+  },
+  {
+    "id": 19,
+    "pregunta": "¿Cuándo se celebran los Juegos Deportivos Municipales 2026-2027?",
+    "categoria_esperada": "agenda",
+    "fuente_esperada": "211549-0-juegos-deportivos-actual.txt"
+  },
+  {
+    "id": 20,
+    "pregunta": "¿Cómo se inscribe un equipo o club en las competiciones municipales?",
+    "categoria_esperada": "agenda",
+    "fuente_esperada": "normativaGeneral46jdm.pdf"
+  },
+  {
+    "id": 21,
+    "pregunta": "¿Cuándo empiezan las actividades deportivas de la temporada?",
+    "categoria_esperada": "agenda",
+    "fuente_esperada": "212504-0-agenda-actividades-deportes.csv"
+  },
+  {
+    "id": 22,
+    "pregunta": "¿Cuál es la mejor marca de zapatillas para correr?",
+    "categoria_esperada": "out_of_corpus",
+    "fuente_esperada": null,
+    "out_of_corpus": true
+  }
+]
