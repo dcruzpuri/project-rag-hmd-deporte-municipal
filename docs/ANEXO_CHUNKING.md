@@ -1,75 +1,61 @@
-# HT-CHUNK-01 — Guía técnica: cambio del nivel de chunking (How-to)
+# Guía técnica: cambio del nivel de troceado (cómo hacer)
 
 ## 1. Objeto
 
-El presente documento describe el procedimiento para modificar el nivel de chunking (o sus parámetros) del pipeline RAG del proyecto, así como los pasos de validación obligatorios tras la modificación. Se redacta como guía operativa de referencia para el equipo.
+El presente documento describe el procedimiento para modificar el nivel de troceado (o sus parámetros) del pipeline RAG del proyecto, así como los pasos de validación obligatorios tras la modificación. Se redacta como guía operativa de referencia para el equipo.
 
 ## 2. Alcance y referencias
 
-*   **Aplicabilidad:** `src/chunk.py` (único punto del corte), `config.py`, `scripts/eval_coherencia_chunks.py` y `tests/test_chunks.py` .
-    
-*   **Referencias:** sección punto 6 de `HIGHLIGHTS_CORPUS_DATA.md` ("Chunking con criterio (Level 2) y validación") y escala de niveles `1 Character → 2 Recursive → 3 Document-specific → 4 Semantic → 5 Agentic` documentada en `FT_CORPUS_DATA.md` punto 6 .
-    
+- **Aplicabilidad**: el módulo `src/chunk.py` (único punto del corte), el módulo `config.py`, el script `scripts/eval_coherencia_chunks.py` y la prueba `tests/test_chunks.py`.
+- **Referencias**: el apartado noveno de `HIGHLIGHTS_CORPUS_DATA.md` (título *El troceado con criterio (nivel dos) y su validación*) y la escala de niveles (uno para caracteres fijos, dos recursivo, tres específico del documento, cuatro semántico y cinco agéntico) documentada en el apartado sexto de `FT_CORPUS_DATA.md`.
 
 ## 3. Regla fundamental
 
-**◬ ATENCIÓN**: Cualquier modificación del splitter o de `CHUNK_SIZE`/`CHUNK_OVERLAP` exige la **regeneración completa del índice**. Los vectores almacenados son función directa del texto troceado; un índice no regenerado tras el cambio produce resultados inválidos .
+**Atención:** cualquier modificación del divisor de texto (el *splitter*) o de las constantes `CHUNK_SIZE` y `CHUNK_OVERLAP` exige la **regeneración completa del índice**. Los vectores almacenados son función directa del texto troceado; un índice no regenerado tras el cambio produce resultados inválidos.
 
 ## 4. Estado inicial del sistema
 
-*   **Nivel activo:** 2 (Recursive character), implementado en `src/chunk.py::trocear` mediante `RecursiveCharacterTextSplitter` con separadores `["\n\n", "\n", ". ", " ", ""]` .
-    
-*   **Validación:** `scripts/eval_coherencia_chunks.py` y `tests/test_chunks.py` .
-    
-*   **Indexación:** `ejecutar_pipeline(..., recreate_index=True)` .
-    
+- **El nivel activo** es el dos (recursivo por caracteres), implementado en la función `trocear` del módulo `src/chunk.py`, mediante el divisor recursivo de texto por caracteres y sus separadores de párrafo, salto de línea, frase, espacio y cadena vacía.
+- **La validación** corresponde al script `scripts/eval_coherencia_chunks.py` y a la prueba `tests/test_chunks.py`.
+- **La indexación** se realiza mediante la función `ejecutar_pipeline`, invocada con la opción de regeneración de índice activada.
 
-### Niveles disponibles: costes y beneficios
+### Los niveles disponibles: costes y beneficios
 
-| Nivel | Coste | Beneficio | Indicación |
-| --- | --- | --- | --- |
-| 1 · Character | Muy bajo (sin dependencias, trivial) | Rapidez extrema; útil como punto de contraste | Solo como experimento: es rígido y corta a ciegas  |
-| 2 · Recursive | Bajo (nivel actual, sin dependencias extra) | Equilibrio entre velocidad y respeto a párrafos/frases | Nivel por defecto del proyecto  |
-| 3 · Document-specific | Medio: MD no añade dependencias; las tablas de PDF requieren Unstructured y un pipeline de ingesta distinto | Preserva la estructura del documento (encabezados, tablas) | Corpus homogéneo y estructurado  |
-| 4 · Semantic | Alto: batch extra de embeddings por documento fuente; es el nivel más caro | Cortes por cambio de tema; no rompe unidades de significado | Solo si el eval lo justifica  |
-| 5 · Agentic | Muy alto: lento, caro y no determinista (índice difícil de reproducir) | Flexibilidad teórica de corte | No se recomienda  |
+- **El nivel uno (caracteres fijos)**: su coste es muy bajo (sin dependencias, sencillo) y su beneficio es la rapidez extrema, útil como punto de contraste. Indicación: solo como experimento, porque es rígido y corta sin respetar límites de texto.
+- **El nivel dos (recursivo por caracteres)**: su coste es bajo (es el nivel actual y no añade dependencias) y su beneficio es el equilibrio entre velocidad y respeto a párrafos y frases. Indicación: es el nivel por defecto del proyecto.
+- **El nivel tres (específico del documento)**: su coste es medio (el markdown no añade dependencias, pero las tablas de PDF requieren la librería Unstructured y un pipeline de ingesta distinto) y su beneficio es que preserva la estructura del documento (encabezados, tablas). Indicación: un corpus homogéneo y estructurado.
+- **El nivel cuatro (semántico)**: su coste es alto (un lote extra de embeddings por documento fuente; es el nivel más caro) y su beneficio es que trocea por cambio de tema, sin romper unidades de significado. Indicación: únicamente cuando la evaluación lo justifique.
+- **El nivel cinco (agéntico)**: su coste es muy alto (lento, caro y no determinista, lo que hace difícil reproducir el índice) y su beneficio es la flexibilidad teórica de corte. Indicación: no se recomienda.
 
-**Preparado en el venv (comprobado):** `CharacterTextSplitter`, `RecursiveCharacterTextSplitter`, `MarkdownTextSplitter`, `MarkdownHeaderTextSplitter`, `SpacyTextSplitter`. **No están** `langchain_text_splitters.semantic` ni `SemanticTextSplitter`; el nivel 4 se implementa manualmente con `embeddear` .
+**Preparados en el entorno virtual (comprobado):** los divisores caracter a fijo, recursivo por caracteres, para markdown y para encabezados de markdown, y el basado en spaCy. **No están** instalados el divisor semántico de la librería de divisores de texto ni el divisor semántico; por consiguiente, el nivel cuatro se implementa manualmente con la función `embeddear`.
 
 ## 5. Procedimiento
 
 ### 5.1. Preparación
 
-1.  Se fijará el directorio de trabajo del corpus (`data/`) y el conjunto de preguntas de evaluación, que deberán permanecer invariantes durante el experimento .
-    
-2.  Se obtendrá un snapshot de referencia (nº de chunks, margen de coherencia, hit-rate) mediante:
-    
+1. Se fijará el directorio de trabajo del corpus (el directorio `data/`) y el conjunto de preguntas de evaluación, que deberán permanecer invariantes durante el experimento.
+2. Se obtendrá una instantánea de referencia (el número de chunks, el margen de coherencia y la tasa de aciertos) mediante los comandos de la prueba de métricas de troceado y del script de evaluación de coherencia:
+
     ```powershell
     python -m pytest tests/test_chunks.py::TestChunkMetrics -v -s
     python -m scripts.eval_coherencia_chunks
     ```
-    
-3.  Se documentará en el informe el valor inicial de `CHUNK_SIZE`/`CHUNK_OVERLAP` y el splitter empleado (se registra automáticamente en el `output/informe_index_(...).md` correspondiente).
-    
+
+3. Se documentará en el informe el valor inicial de las constantes `CHUNK_SIZE` y `CHUNK_OVERLAP` y el divisor empleado (se registra automáticamente al recrear los índices, en el informe `output/informe_index_(...).md` correspondiente).
 
 ### 5.2. Aplicación del cambio
 
 Según el objetivo:
 
-*   **Ajuste de parámetros (mismo nivel):** cambio en `.env` (global) o por parámetro de `trocear` (puntualmente al llamarlo por comando). La comprobación es `is not None`, por lo que `chunk_overlap=0` es un valor válido y respeta el 0 .
-    
-*   **Nivel 1 (contraste):** sustitución del bloque del splitter en `src/chunk.py` por `CharacterTextSplitter` .
-    
-*   **Nivel 3 (Document-specific):** selección del splitter por extensión manteniendo la firma de `trocear` (p. ej. `MarkdownTextSplitter` para `.md`). Las tablas de PDF requieren Unstructured (no instalado) y un pipeline de ingesta distinto; no se implementa hasta que el eval lo pida .
-    
-*   **Nivel 4 (Semantic):** implementación de breakpoints por similitud coseno entre frases adyacentes con `embeddear` y `numpy`; umbral sugerido 0.20–0.25 (más bajo = más breakpoints) .
-    
-*   **Nivel 5 (Agentic):** no se recomienda; únicamente como experimento opcional documentado .
-    
+- **El ajuste de parámetros (manteniendo el mismo nivel)**: el cambio se hace en el archivo `.env` (global) o por parámetro de la función `trocear` (puntualmente, al llamarla por comando). La comprobación se realiza mediante la comparación de identidad con un valor no nulo, por lo que un solapamiento de cero es un valor válido que respeta el cero.
+- **El nivel uno (contraste)**: la sustitución del bloque del divisor en `src/chunk.py` por el divisor de caracteres fijos.
+- **El nivel tres (específico del documento)**: la selección del divisor por extensión, manteniendo la firma de la función `trocear` (por ejemplo, el divisor para markdown en los archivos `.md`). Las tablas de PDF requieren la librería Unstructured (no instalada) y un pipeline de ingesta distinto; no se implementa hasta que la evaluación lo pida.
+- **El nivel cuatro (semántico)**: la implementación de puntos de corte por similitud coseno entre frases adyacentes, con las funciones de vectorización y la librería numpy; el umbral sugerido va de 0.20 a 0.25 (un umbral más bajo produce más puntos de corte).
+- **El nivel cinco (agéntico)**: no se recomienda; únicamente como experimento opcional documentado.
 
 ### 5.3. Regeneración del índice
 
-En Python ejecutar:
+En Python, ejecutar la función del pipeline sobre el directorio del corpus con la opción de regeneración activada:
 
 ```python
 ejecutar_pipeline("./data", recreate_index=True)
@@ -81,56 +67,80 @@ Equivalente directo por consola:
 python main.py ./data --recreate-index
 ```
 
-
 ### 5.4. Validación (obligatoria)
 
-1.  **Coherencia de los cortes:** margen > 0.05 (el overlap mantiene coherencia temática) .
-    
-2.  **Distribución de longitudes:** documentada para el informe de chunking .
-    
-3.  **Retrieval** sobre las mismas preguntas con **al menos 2 valores de K**, anotando si el mejor hit mantiene sentido o si aparece ruido .
-    
-4.  **Regeneración del índice definitivo** .
-    
-5.  **Documentación** en `entregables/informe_decisiones.md`: nivel empleado, justificación, experimento `CHUNK_SIZE`/`CHUNK_OVERLAP` con métricas, y al menos 1 acierto + 1 abstención de la fase de generación .
-    
+1. **Coherencia de los cortes:** el margen de coherencia ha de superar 0.05, ya que el solapamiento entre chunks es lo que preserva la continuidad temática del corpus.
+2. **Distribución de longitudes:** se documentará en el informe de troceado, dejando constancia de la dispersión de tamaños resultante y su coherencia con los parámetros de corte configurados.
+3. **Recuperación (retrieval):** se ejecutará sobre el mismo conjunto de preguntas, con **al menos dos valores de la constante K** (el número de vecinos que se recuperan), dejando constancia de si el mejor acierto conserva su sentido o si, por el contrario, se filtra ruido en los resultados.
+4. **La regeneración del índice definitivo.**
+5. **La documentación** en `entregables/informe_decisiones.md`: se dejará constancia del nivel empleado y su justificación, del experimento sobre las constantes `CHUNK_SIZE` y `CHUNK_OVERLAP` con sus métricas asociadas, y de al menos un acierto y una abstención observados en la fase de generación.
 
 ## 6. Criterio de aceptación del cambio de nivel
 
-Se adoptará un nivel superior únicamente si el eval evidencia una mejora medible (hit-rate o margen de coherencia) que justifique el coste adicional. En ausencia de mejora, se mantendrá el nivel previo y la decisión se documentará con las métricas correspondientes .
+La adopción de un nivel superior quedará condicionada a que la evaluación evidencie una mejora medible —ya sea en la tasa de aciertos o en el margen de coherencia— que justifique el coste adicional que conlleva. De no constar dicha mejora, se mantendrá el nivel previo y se documentará la decisión junto con las métricas que la respaldan.
 
 ## 7. Errores comunes y su resolución
 
-| Error | Consecuencia | Resolución |
-| --- | --- | --- |
-| Modificar el splitter o `CHUNK_SIZE`/`CHUNK_OVERLAP` sin regenerar el índice | Vectores obsoletos sobre un corte nuevo; resultados de retrieval inválidos | Regenerar con `ejecutar_pipeline(..., recreate_index=True)`  |
-| Cambiar el corpus o las preguntas de eval durante el experimento | Resultados no comparables; experimento no reproducible | Fijar corpus y preguntas antes de empezar y guardar el snapshot de referencia  |
-| Pasar `chunk_overlap=0` esperando que se aplique el valor por defecto | Confusión sobre el parámetro efectivo (el 0 se respeta) | La comprobación es `is not None`: para aplicar el default, omitir el parámetro  |
-| Cambiar el modelo de embeddings sin regenerar el índice | Índice incompatible con los nuevos vectores | Regenerar el índice desde cero  |
-| Sustituir el splitter global del nivel 3 sin mantener la firma de `trocear` | Se rompen los consumidores del módulo (pipeline, tests) | Seleccionar el splitter por extensión dentro de `src/chunk.py` conservando la firma  |
-| Importar `SemanticTextSplitter` de `langchain_text_splitters` | `ImportError`: no está disponible en el venv | Implementar los breakpoints con `embeddear` + `numpy` (nivel 4 manual)  |
-| Fijar el umbral del nivel 4 fuera de rango sin medir | Demasiados breakpoints (umbral bajo) o fusión de temas (umbral alto) | Medir coste y coherencia; documentar el umbral elegido en el informe  |
-| Margen de coherencia < 0.05 tras el cambio | Overlap insuficiente; pérdida de coherencia temática | Aumentar `CHUNK_OVERLAP` o reducir `CHUNK_SIZE` y revalidar  |
-| Aplicar el nivel 5 (Agentic) como camino principal | Índice lento, caro y no reproducible | Descartar; solo como experimento opcional documentado  |
-| No documentar nivel, parámetros y métricas tras el cambio | Experimento no reproducible; memoria incompleta | Documentar en `entregables/informe_decisiones.md` según punto 5.4  |
-| Modificar la lista de separadores de `RecursiveCharacterTextSplitter` (p. ej., usar la por defecto) | Cortes distintos a los del índice actual; vectores obsoletos | Regenerar el índice y revalidar coherencia  |
-| Fijar `CHUNK_OVERLAP` >= `CHUNK_SIZE` | `ValueError` en el splitter o chunks degenerados | Mantener overlap < size y revalidar margen y distribución  |
-| Cambiar `CHUNK_SIZE` sin revisar `CHUNK_OVERLAP` | El ratio de overlap cambia y puede romperse la coherencia | Recalcular el overlap y revalidar margen > 0.05  |
-| Cambiar el valor de K entre ejecuciones del eval | Métricas de retrieval no comparables entre runs | Fijar al menos 2 valores de K en todas las ejecuciones y documentarlos  |
-| Aplicar `MarkdownTextSplitter` a archivos no Markdown (p. ej., PDF) | Pérdida de estructura o cortes incorrectos | Seleccionar el splitter por extensión dentro de `trocear`; las tablas de PDF requieren Unstructured  |
-| Modificar `scripts/eval_coherencia_chunks.py` durante el experimento | Métricas no comparables con el snapshot de referencia | No tocar el script de eval durante el experimento; documentar cualquier cambio posterior  |
+Se recogen a continuación, en orden, los errores más frecuentes asociados a la modificación del nivel de troceado, junto con la consecuencia que cada uno acarrea y la resolución que corresponde aplicar.
+
+1. **El error**: modificar el divisor (el *splitter*) o las constantes `CHUNK_SIZE` y `CHUNK_OVERLAP` sin la regeneración consiguiente del índice.
+   **La consecuencia**: los vectores almacenados quedan obsoletos respecto al nuevo corte, lo que invalida por completo los resultados de recuperación.
+   **La resolución**: regenerar el índice de forma íntegra mediante la función del pipeline con la opción de regeneración, o por consola.
+2. **El error**: alterar el corpus o el conjunto de preguntas de evaluación durante el desarrollo del experimento.
+   **La consecuencia**: las métricas resultantes carecen de comparabilidad entre sí y el experimento pierde su reproducibilidad.
+   **La resolución**: fijar el corpus y las preguntas antes de iniciar el experimento y conservar la instantánea de referencia.
+3. **El error**: transmitir un solapamiento de cero con la expectativa de que se aplique el valor por defecto.
+   **La consecuencia**: confusión sobre el parámetro efectivamente vigente, dado que la comprobación de identidad (comparación con un valor no nulo) respeta expresamente el cero.
+   **La resolución**: para aplicar el valor por defecto, omitir el parámetro en lugar de transmitir un cero explícito.
+4. **El error**: sustituir el modelo de embeddings sin regenerar el índice.
+   **La consecuencia**: el índice resulta incompatible con los nuevos vectores generados.
+   **La resolución**: regenerar el índice desde cero.
+5. **El error**: sustituir el divisor del nivel tres sin preservar la firma de la función `trocear`.
+   **La consecuencia**: se compromete el funcionamiento de los consumidores del módulo, entre ellos el pipeline y la suite de pruebas.
+   **La resolución**: seleccionar el divisor según la extensión del archivo dentro de `src/chunk.py`, conservando inalterada la firma de la función `trocear`.
+6. **El error**: intentar importar el divisor semántico desde la librería de divisores de texto.
+   **La consecuencia**: se produce un error de importación, pues dicho componente no está disponible en el entorno virtual.
+   **La resolución**: implementar los puntos de corte de forma manual mediante las funciones de vectorización y la librería numpy (el nivel cuatro).
+7. **El error**: fijar el umbral del nivel cuatro fuera del rango recomendado, sin medición previa.
+   **La consecuencia**: un umbral excesivamente bajo genera un exceso de puntos de corte; un umbral excesivamente alto fusiona temas distintos.
+   **La resolución**: medir el coste y la coherencia antes de fijar el umbral y documentarlo en el informe correspondiente.
+8. **El error**: un margen de coherencia inferior a 0.05 tras la modificación.
+   **La consecuencia**: el solapamiento resulta insuficiente y se pierde la continuidad temática del corpus.
+   **La resolución**: aumentar el solapamiento o reducir el tamaño del chunk, y volver a validar el margen.
+9. **El error**: adoptar el nivel cinco (agéntico) como vía principal.
+   **La consecuencia**: el índice se vuelve lento, costoso y no reproducible.
+   **La resolución**: descartar dicho nivel; su uso queda restringido a un experimento opcional debidamente documentado.
+10. **El error**: omitir la documentación del nivel empleado, de los parámetros y de las métricas tras el cambio.
+    **La consecuencia**: el experimento pierde reproducibilidad y la memoria técnica queda incompleta.
+    **La resolución**: documentar el nivel, los parámetros y las métricas en `entregables/informe_decisiones.md`, conforme al apartado 5.4.
+11. **El error**: modificar la lista de separadores del divisor recursivo (por ejemplo, adoptar la lista por defecto).
+    **La consecuencia**: los cortes difieren de los del índice vigente y los vectores almacenados quedan obsoletos.
+    **La resolución**: regenerar el índice y volver a validar el margen de coherencia.
+12. **El error**: fijar el solapamiento igual o superior al tamaño del chunk.
+    **La consecuencia**: el divisor lanza un error de valor o produce chunks degenerados.
+    **La resolución**: mantener el solapamiento estrictamente inferior al tamaño del chunk y volver a validar el margen y la distribución.
+13. **El error**: modificar el tamaño del chunk sin revisar el solapamiento.
+    **La consecuencia**: la proporción de solapamiento cambia y puede comprometerse la coherencia temática.
+    **La resolución**: recalcular el solapamiento y volver a validar que el margen supere 0.05.
+14. **El error**: variar el valor de K entre ejecuciones de la evaluación.
+    **La consecuencia**: las métricas de recuperación no resultan comparables entre ejecuciones.
+    **La resolución**: fijar al menos dos valores de K en todas las ejecuciones y documentarlos.
+15. **El error**: aplicar el divisor para markdown a archivos ajenos a markdown (por ejemplo, archivos PDF).
+    **La consecuencia**: se pierde la estructura del documento o se producen cortes incorrectos.
+    **La resolución**: seleccionar el divisor según la extensión dentro de la función de troceado; las tablas de PDF requieren la librería Unstructured.
+16. **El error**: modificar el script de evaluación de coherencia durante el experimento.
+    **La consecuencia**: las métricas dejan de ser comparables con la instantánea de referencia.
+    **La resolución**: no alterar el script de evaluación durante el experimento y documentar cualquier modificación posterior.
 
 ## 8. Tabla de consulta rápida
 
-| Operación | Modificación | Regeneración del índice |
-| --- | --- | --- |
-| Ajuste de parámetros (misma estrategia) | `CHUNK_SIZE`/`CHUNK_OVERLAP` en `.env` o parámetro de `trocear` | Obligatoria  |
-| Contraste con nivel 1 | `CharacterTextSplitter` en `src/chunk.py` | Obligatoria  |
-| Cambio de separadores (nivel 2) | Lista de separadores de `RecursiveCharacterTextSplitter` en `src/chunk.py` | Obligatoria  |
-| Estructura Markdown (nivel 3) | Loader por extensión + `MarkdownTextSplitter` | Obligatoria  |
-| Breakpoints semánticos (nivel 4) | Función de embeddings (numpy) + `embeddear` | Obligatoria  |
-| Agentic (nivel 5) | Implementación en `src/chunk.py` | Obligatoria **(nivel no recomendado)**  |
-| Cambio de modelo de embeddings | `config.py`/`.env` | Obligatoria (desde cero)  |
-| Cierre definitivo | — | Una única vez, al final  |
+- **El ajuste de parámetros (misma estrategia)**: la modificación corresponde a las constantes `CHUNK_SIZE` y `CHUNK_OVERLAP` en el archivo `.env`, o al parámetro de la función `trocear`; la regeneración del índice es obligatoria.
+- **El contraste con el nivel uno**: la modificación corresponde al divisor de caracteres fijos en `src/chunk.py`; la regeneración del índice es obligatoria.
+- **El cambio de separadores (nivel dos)**: la modificación corresponde a la lista de separadores del divisor recursivo en `src/chunk.py`; la regeneración del índice es obligatoria.
+- **La estructura markdown (nivel tres)**: la modificación corresponde al cargador por extensión más el divisor para markdown; la regeneración del índice es obligatoria.
+- **Los puntos de corte semánticos (nivel cuatro)**: la modificación corresponde a la función de embeddings (mediante numpy) más la función de vectorización; la regeneración del índice es obligatoria.
+- **El nivel agéntico (nivel cinco)**: la modificación corresponde a la implementación en `src/chunk.py`; la regeneración del índice es obligatoria (nivel no recomendado).
+- **El cambio del modelo de embeddings**: la modificación corresponde a `config.py` o al archivo `.env`; la regeneración del índice es obligatoria, y se realiza desde cero.
+- **El cierre definitivo**: ninguna modificación; el índice se regenera una única vez, al final.
 
-**◬ IMPORTANTE:** Si se modifica el modelo de embeddings o los límites del índice: ha de regenerarse el índice desde cero.
+**Importante:** insistir en que, siempre que se modifique el modelo de embeddings o los límites del índice, ha de regenerarse el índice desde cero.

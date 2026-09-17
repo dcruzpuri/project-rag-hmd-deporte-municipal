@@ -86,7 +86,8 @@ def test_pipeline_genera_metricas_para_el_informe(
     texto = ruta.read_text(encoding="utf-8")
     assert texto.startswith("# Informe de indexación")
     for seccion in ("## 1. Parámetros aplicados", "## 2. Preflight",
-                    "## 3. Métricas por fase", "## 4. Chunking",
+                    "## 3. Métricas por fase",
+                    "## 4. Corpus y chunking (longitudes en caracteres)",
                     "## 5. Índice final (ChromaDB)", "## 6. TSD (scoring + dedup)",
                     "## 7. Señales y criterios de decisión"):
         assert seccion in texto

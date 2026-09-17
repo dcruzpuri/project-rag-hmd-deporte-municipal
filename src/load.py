@@ -5,6 +5,7 @@ El CSV no se convierte aquí: ``csv_transform.py`` aplica el consejo del
 advisor de ``csv_advisor.py`` (entidad, grupo o fila por documento).
 """
 
+import hashlib
 import os
 from pathlib import Path
 from collections.abc import Callable
@@ -15,15 +16,39 @@ from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from .csv_transform import transform_csv
 
 
+_LOTES_HASH = 1 << 20  # 1 MiB por lectura en el hash
+
+
+def _hash_file(ruta: str) -> str:
+    """SHA-256 hex del contenido binario crudo del archivo (en streaming).
+
+    Identifica unívocamente al archivo de origen: estable entre indexaciones,
+    detecta contenido nuevo en una descarga repetida del mismo nombre. Se lee
+    en lotes para no cargar en memoria los archivos grandes.
+    """
+    digest = hashlib.sha256()
+    with open(ruta, "rb") as f:
+        while True:
+            bloque = f.read(_LOTES_HASH)
+            if not bloque:
+                break
+            digest.update(bloque)
+    return digest.hexdigest()
+
+
 def _normalizar_source(documentos: list[Document], ruta: str) -> list[Document]:
     """source = os.path.basename(ruta) SIEMPRE (coherencia de metadata por clave
-    de fuente: dedup, ids y matching de fuente_esperada en el eval).
+    de fuente: dedup, ids y matching de fuente_esperada en el eval), más
+    file_hash = SHA-256 del archivo crudo (identifica unívocamente el origen,
+    estable entre indexaciones).
 
     TextLoader/PyPDFLoader fijan la ruta completa (con data\\ en Windows);
     si el loader ya dejó un source limpio (p. ej. los CSV), no se toca.
     """
+    file_hash = _hash_file(ruta)
     for d in documentos:
         d.metadata["source"] = os.path.basename(ruta)
+        d.metadata["file_hash"] = file_hash
     return documentos
 
 
@@ -85,7 +110,7 @@ def cargar_archivos(rutas: list[str] | str) -> list[Document]:
         rutas: una ruta o lista de rutas a archivos/carpetas.
 
     Returns:
-        Lista de Document (page_content + metadata.source).
+        Lista de Document (page_content + metadata.source + metadata.file_hash).
     """
     if isinstance(rutas, str):
         rutas = [rutas]
@@ -109,9 +134,11 @@ def cargar_archivos(rutas: list[str] | str) -> list[Document]:
         ext = Path(archivo).suffix.lower()
         loader_fn = _LOADERS[ext]
         docs = loader_fn(archivo)
-        # Asegurar metadata.source si el loader no la puso
+        # Asegurar metadata.source y metadata.file_hash si el loader no los puso
+        file_hash = _hash_file(archivo)
         for d in docs:
             d.metadata.setdefault("source", os.path.basename(archivo))
+            d.metadata.setdefault("file_hash", file_hash)
         documentos.extend(docs)
 
     return documentos

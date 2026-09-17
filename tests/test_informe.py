@@ -25,7 +25,9 @@ def _datos(**overrides) -> dict[str, Any]:
         "parametros": [
             ("EMBED_PROVIDER", "ollama", "proveedor de embeddings"),
             ("EMBED_MODEL", "qwen3-embedding:4b", "modelo de embeddings"),
-            ("EMBED_DIM", 2560, "cap de dimensión"),
+            ("EMBED_DIM_DECLARADO", 3072, "tope declarado en .env"),
+            ("EMBED_DIM_MODELO", 2560, "dimensión máxima del modelo (EMBED_DIM_MAX_*)"),
+            ("EMBED_DIM", 2560, "dimensión efectiva del índice (min(dim modelo, declarado))"),
         ],
         "preflight": {
             "verificado_por": "online",
@@ -48,7 +50,13 @@ def _datos(**overrides) -> dict[str, Any]:
         "dim_embedding": 8,
         "dim_msg": "",
         "chunk_stats": {"min": 10, "p25": 12, "media": 20, "p50": 20, "p75": 30,
-                        "max": 40, "cortos": 0},
+                        "max": 40, "cortos": 0, "sin_trocear": 0},
+        "fuentes": [
+            ("a.txt", {"docs": 1, "chunks_pre": 2, "chunks_post": 1}),
+            ("b.csv", {"docs": 1, "chunks_pre": 1, "chunks_post": 1}),
+        ],
+        "integridad": {"n": 3, "dim": 8, "dim_ok": 3, "nan_inf": 0, "cero": 0,
+                       "norma_min": 1.0, "norma_media": 1.0, "norma_max": 1.0},
         "scoring": None,
         "dedup": None,
         "indice": {
@@ -187,6 +195,123 @@ class TestGenerarInforme:
         ruta = generar_informe(_datos(chunk_stats=stats), tmp_path / "informe.md")
         assert "42" in ruta.read_text(encoding="utf-8")
 
+    def test_senal_chunk_corto_singular(self, tmp_path: Path) -> None:
+        """Un solo corto: '1 chunk', no '1 chunks'."""
+        stats = {"min": 1, "p25": 5, "media": 100, "p50": 100, "p75": 200,
+                 "max": 900, "cortos": 1}
+        ruta = generar_informe(_datos(chunk_stats=stats), tmp_path / "informe.md")
+        texto = ruta.read_text(encoding="utf-8")
+        assert "hay 1 chunk < 50 caracteres" in texto
+        assert "1 chunks" not in texto
+
+    def test_fuentes_vacia_post_dedup_alerta_critica(self, tmp_path: Path) -> None:
+        """Fuente con chunks pre y 0 post: alerta crítica en sección 4 y señal 7."""
+        ruta = generar_informe(
+            _datos(fuentes=[("a.pdf", {"docs": 1, "chunks_pre": 1, "chunks_post": 0})]),
+            tmp_path / "informe.md",
+        )
+        texto = ruta.read_text(encoding="utf-8")
+        assert "| a.pdf | 1 | 1 | 0 |" in texto
+        assert "Fuente vacía post-dedup (crítica)" in texto  # nota bloqueada en la tabla
+        assert "**Fuente vacía (crítica):** `a.pdf`" in texto  # señal explícita
+        assert "DEDUP_UMBRAL" in texto
+
+    def test_fuentes_sin_vacias_sin_alerta(self, tmp_path: Path) -> None:
+        """Sin fuentes vacías no aparece la alerta crítica (base de _datos)."""
+        ruta = generar_informe(_datos(), tmp_path / "informe.md")
+        assert "Fuente vacía" not in ruta.read_text(encoding="utf-8")
+
+    def test_dim_modelo_no_declarada(self, tmp_path: Path) -> None:
+        """EMBED_DIM_MAX_* vacía: la fila MODELO dice 'no declarada' y la
+        sección 2 lo deja constancia (el preflight online no expone la dim)."""
+        datos = _datos(
+            parametros=[
+                ("EMBED_PROVIDER", "ollama", "proveedor de embeddings"),
+                ("EMBED_DIM_MODELO", "no declarada",
+                 ("EMBED_DIM_MAX_* no declarada: el preflight solo verificó la "
+                  "disponibilidad (no la dimensión nativa del modelo)")),
+                ("EMBED_DIM", 2560, "dimensión efectiva del índice"),
+            ],
+            preflight={"verificado_por": "online", "dim_modelo": None,
+                       "aviso": None},
+        )
+        ruta = generar_informe(datos, tmp_path / "informe.md")
+        texto = ruta.read_text(encoding="utf-8")
+        assert "`EMBED_DIM_MODELO` | no declarada |" in texto
+        assert "`EMBED_DIM_MAX_*`):** no declarada" in texto
+
+    def test_seccion4_fuentes_integridad_y_tres_dims(self, tmp_path: Path) -> None:
+        """Sección 4: tabla fuentes→(docs, chunks pre/post) y tres filas EMBED_DIM;
+        sección 5: línea de integridad de los vectores."""
+        ruta = generar_informe(_datos(), tmp_path / "informe.md")
+        texto = ruta.read_text(encoding="utf-8")
+        assert "## 4. Corpus y chunking (longitudes en caracteres)" in texto
+        assert "| a.txt | 1 | 2 | 1 |" in texto
+        assert "| **total** | 2 | 3 | 2 |" in texto
+        assert "EMBED_DIM_DECLARADO" in texto and "EMBED_DIM_MODELO" in texto
+        assert "| 3072 |" in texto
+        assert "- **Integridad:** 3 vectores · dim 8 · NaN/Inf 0 · ceros 0" in texto
+        assert "| íntegras (`no_chunk`) | 0 |" in texto
+
+    def test_orden_secciones_seis(self, tmp_path: Path) -> None:
+        """Orden único 6.1 < 6.2 < 6.3, sin 'útiles', umbral interno documentado."""
+        dedup = self._dedup_cobertura({
+            "tarifas": {"pre": 3, "post": 2},
+            "normativa": {"pre": 2, "post": 2},
+            "reservas": {"pre": 1, "post": 1},
+            "abonos": {"pre": 2, "post": 2},
+            "instalaciones": {"pre": 1, "post": 1},
+            "agenda": {"pre": 1, "post": 1},
+        })
+        scoring = {
+            "semantic_score_min": 0.3, "semantic_score_media": 0.6,
+            "semantic_score_max": 0.9, "centralidad_media": 0.5,
+            "redundancia_media": 0.2, "score_buenos_pct": 60.0,
+            "score_buenos_n": 6, "chunks_n": 10, "tiempo_s": 0.5,
+        }
+        ruta = generar_informe(_datos(dedup=dedup, scoring=scoring), tmp_path / "informe.md")
+        texto = ruta.read_text(encoding="utf-8")
+        i61, i62, i63 = (texto.index(x) for x in ("### 6.1", "### 6.2", "### 6.3"))
+        assert i61 < i62 < i63
+        assert "útiles" not in texto
+        assert "NO es precisión ni relevancia" in texto
+        assert "| umbral coseno (`DEDUP_UMBRAL`) | 0.9 |" in texto
+
+    def test_seccion_61_redundancia_por_politica(self, tmp_path: Path) -> None:
+        """La 6.1 muestra la tabla de redundancia por política (umbral desde el volcado)."""
+        scoring = {
+            "semantic_score_min": 0.3, "semantic_score_media": 0.6,
+            "semantic_score_max": 0.9, "centralidad_media": 0.5,
+            "redundancia_media": 0.2, "score_buenos_pct": 60.0,
+            "score_buenos_n": 6, "chunks_n": 10, "tiempo_s": 0.5,
+            "redundancia_umbral": 0.93,
+            "redundancia_por_politica": {
+                "exact_key": {"n": 854, "media": 0.8215, "p50": 0.7982,
+                              "p90": 0.989, "pct_sup_umbral": 17.1},
+                "group_only": {"n": 13186, "media": 0.984, "p50": 0.988,
+                               "p90": 0.9945, "pct_sup_umbral": 99.8},
+                "semantica": {"n": 739, "media": 0.8664, "p50": 0.9199,
+                              "p90": 0.9286, "pct_sup_umbral": 0.0},
+            },
+        }
+        ruta = generar_informe(_datos(scoring=scoring), tmp_path / "informe.md")
+        texto = ruta.read_text(encoding="utf-8")
+        assert "| política | n | media | p50 | p90 | % ≥ umbral |" in texto
+        assert "| exact_key | 854 | 0.8215 |" in texto
+        assert "| 0.0 % |" in texto and "| 99.8 % |" in texto
+        assert "estructural" in texto
+
+    def test_seccion61_sin_volcado_no_tabla_politica(self, tmp_path: Path) -> None:
+        """Sin la métrica volcada por el scoring no se muestra la tabla por política."""
+        scoring = {
+            "semantic_score_min": 0.3, "semantic_score_media": 0.6,
+            "semantic_score_max": 0.9, "centralidad_media": 0.5,
+            "redundancia_media": 0.2, "score_buenos_pct": 60.0,
+            "score_buenos_n": 6, "chunks_n": 10, "tiempo_s": 0.5,
+        }
+        ruta = generar_informe(_datos(scoring=scoring), tmp_path / "informe.md")
+        assert "| política | n |" not in ruta.read_text(encoding="utf-8")
+
 
 class TestMetricasRuntime:
     """scoring/dedup vuelcan sus métricas en el dict ``info`` del pipeline."""
@@ -202,6 +327,27 @@ class TestMetricasRuntime:
         assert 0.0 <= sc["semantic_score_min"] <= sc["semantic_score_max"]
         assert sc["score_buenos_pct"] == float(sc["score_buenos_pct"])
         assert sc["tiempo_s"] >= 0
+
+    def test_scoring_volca_redundancia_por_politica(self) -> None:
+        import config
+
+        docs = [
+            Document(page_content="fila", metadata={"source": "a.csv",
+                                                     "dedup_policy": "exact_key",
+                                                     "relevancia_llm": 0.5}),
+            Document(page_content="grupo", metadata={"source": "b.csv",
+                                                      "dedup_policy": "group_only",
+                                                      "relevancia_llm": 0.5}),
+            Document(page_content="texto cualquiera", metadata={
+                "source": "c.txt", "relevancia_llm": 0.5}),
+        ]
+        vecs = [[1.0, 0.0], [0.999, 0.001], [0.0, 1.0]]
+        info: dict[str, Any] = {}
+        puntuar(list(docs), list(vecs), info=info)
+        sc = info["scoring"]
+        assert set(sc["redundancia_por_politica"]) == {"exact_key", "group_only", "semantica"}
+        assert sc["redundancia_por_politica"]["semantica"]["n"] == 1
+        assert sc["redundancia_umbral"] == config.DEDUP_UMBRAL
 
     def test_dedup_volca_metricas(self) -> None:
         docs = [Document(page_content=t,

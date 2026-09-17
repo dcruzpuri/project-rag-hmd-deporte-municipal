@@ -76,6 +76,9 @@ CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "150"))
 # --- Embeddings ---
 EMBED_DIM: int = int(os.getenv("EMBED_DIM", "384"))  # 384 (all-MiniLM) / 3072 (gemini)
 EMBED_BATCH_SIZE: int = int(os.getenv("EMBED_BATCH_SIZE", "30"))
+# Lectura de cada POST a Ollama (/api/embed): en carga fría con el modelo TAG
+# residente, el primer batch puede tardar mucho; default 600 s cubre el offload.
+EMBED_TIMEOUT: int = int(os.getenv("EMBED_TIMEOUT", "600"))
 EXPORT_EMBEDDINGS: bool = os.getenv("EXPORT_EMBEDDINGS", "true").lower() == "true"
 # Caché offline del preflight de disponibilidad (src/embed.py): máxima
 # dimensión que maneja el modelo cuando la comprobación online no se puede
