@@ -7,9 +7,11 @@ Al terminar genera un informe markdown
 (output/informe_index_<guid8_chroma>_aaaaMMdd_hhmm.md) con los
 parámetros aplicados y las métricas de la ejecución para la toma de decisiones.
 """
+import json
 import statistics
 import time
 from collections import Counter
+from pathlib import Path
 
 import numpy as np
 from typing import Any
@@ -21,6 +23,8 @@ from config import (
     CHUNK_SIZE,
     COLLECTION_NAME,
     COSINE_SPACE,
+    DEDUP_AUDIT,
+    DEDUP_AUDIT_RUTA,
     DEDUP_UMBRAL,
     EMBED_BATCH_SIZE,
     EMBED_MODEL,
@@ -89,6 +93,19 @@ def _comprobar_dim(dim: int, embed_dim: int,
             f"el índice se crea con {embed_dim} dims (EMBED_DIM)"
         )
     return "ok", ""
+
+
+def _escribir_auditoria_descartes(
+    eventos: list[dict[str, Any]],
+    ruta_audit: str | Path | None = None,
+) -> Path:
+    """Persiste los pares descartados en JSONL (una línea por descarte)."""
+    ruta_audit = Path(ruta_audit or DEDUP_AUDIT_RUTA)
+    ruta_audit.parent.mkdir(parents=True, exist_ok=True)
+    with open(ruta_audit, "w", encoding="utf-8") as f:
+        for ev in eventos:
+            f.write(json.dumps(ev, ensure_ascii=False, default=str) + "\n")
+    return ruta_audit
 
 
 def _stats_chunks(chunks) -> dict[str, float]:
@@ -219,8 +236,10 @@ def ejecutar_pipeline(
     # puerta única: recorta a EMBED_DIM (corte + renormalización) si el modelo
     # produce más, así que la dim resultante nunca supera jamás al modelo ni a EMBED_DIM.
     embeddings = embeddear([c.page_content for c in chunks])
+    n_embedded = len(embeddings)  # salida real de EMBED (pre-dedup): el dedup
+    # muta la variable más abajo y esa cifra no pertenece ya a esta fase.
     dim = len(embeddings[0]) if embeddings else 0
-    _log("EMBED", f"{len(embeddings)} vectores de {dim} dims "
+    _log("EMBED", f"{n_embedded} vectores de {dim} dims "
            f"(EMBED_DIM declarado: {config.EMBED_DIM})")
 
     dim_max = preflight.get("dim_modelo")
@@ -257,6 +276,13 @@ def ejecutar_pipeline(
         _log("DEDUP", "deduplicación")
         chunks, embeddings = deduplicar(chunks, embeddings, info=tsd)
         _crono("TSD", t_tsd0)
+    if DEDUP_AUDIT and tsd.get("dedup") is not None:
+        # Trazabilidad de pares: una línea JSON por descarte (coseno con su
+        # vencedor y similitud, o clave exacta repetida) fuera del pipeline.
+        ruta_audit = _escribir_auditoria_descartes(
+            tsd["dedup"].get("descartes") or [])
+        tsd["dedup"]["audit"] = {"ruta": str(ruta_audit),
+                                 "n": len(tsd["dedup"].get("descartes") or [])}
     for c in chunks:
         fuentes[c.metadata.get("source", "?")]["chunks_post"] += 1
 
@@ -352,7 +378,7 @@ def ejecutar_pipeline(
                 else {"TAG": "desactivado (TAG_SCORING_DEDUP=false)"}
             ),
             "CHUNK": f"{n_pre_dedup} chunks generados (min {stats['min']}, media {stats['media']})",
-            "EMBED": f"{len(embeddings)} vectores de {dim} dims",
+            "EMBED": f"{n_embedded} vectores de {dim} dims (pre-dedup {n_pre_dedup})",
             **(
                 {"TSD": f"scoring + dedup: {n_pre_dedup - len(chunks)} chunks descartados"}
                 if TAG_SCORING_DEDUP

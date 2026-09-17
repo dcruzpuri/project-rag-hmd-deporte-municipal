@@ -106,6 +106,48 @@ def _redundancia_politica_md(scoring: dict[str, Any]) -> list[str]:
     return lineas
 
 
+def _auditoria_md(dedup: dict[str, Any]) -> list[str]:
+    """Auditoría de pares descartados en la 6.2: línea del JSONL (o desactivada),
+    tabla por fuente y muestra de los top-5 pares coseno por similitud.
+    Opcional: si el dedup no volcó datos de auditoría, solo se indica el estado."""
+    lineas: list[str] = []
+    audit = dedup.get("audit")
+    if audit:
+        lineas.append(
+            f"- **Auditoría de pares:** `{audit['ruta']}` ({audit['n']} pares) "
+            "— muestrea la auditoría con `scripts/auditar_dedup.py`"
+        )
+    else:
+        lineas.append("- **Auditoría de pares:** desactivada (DEDUP_AUDIT=false)")
+    lineas.append("")
+    por_fuente = dedup.get("descartes_por_fuente") or {}
+    if por_fuente:
+        lineas += ["**Descartes por fuente:**", "",
+                   "| fuente | descartes |", "|---|---|"]
+        for fuente, n in sorted(por_fuente.items()):
+            lineas.append(f"| {fuente} | {n} |")
+        lineas.append("")
+    muestras = [e for e in (dedup.get("descartes") or [])
+                if e["motivo"] == "dedup_coseno"]
+    if muestras:
+        tope = sorted(muestras, key=lambda e: e["sim"], reverse=True)[:5]
+        lineas += [
+            "**Muestra (top 5 pares coseno por similitud):**",
+            "",
+            "| sim | descartado | conservado (vencedor) |",
+            "|---|---|---|",
+        ]
+        for e in tope:
+            par = e["pareja"]
+            der = f"`{e['fuente']}` · chunk {e.get('chunk_index')} — \"{e['snip'][:60]}\""
+            ven = (f"`{par['fuente']}` · chunk {par.get('chunk_index')} "
+                   f"· score {par['score']} — \"{par['snip'][:60]}\"")
+            der_s, ven_s = der.replace("|", "\\|"), ven.replace("|", "\\|")
+            lineas.append(f"| {e['sim']} | {der_s} | {ven_s} |")
+        lineas.append("")
+    return lineas
+
+
 def _cobertura_md(dedup: dict[str, Any] | None) -> list[str]:
     """Sección 6.3 — cobertura por categoría (pre/post dedup) y top-3 de tags.
 
@@ -157,14 +199,21 @@ def _senales(datos: dict[str, Any]) -> list[str]:
     # Alerta crítica (fuente a 0 post-dedup): si un archivo entero desaparece
     # del índice, su contenido deja de ser recuperable. No la ocultan las
     # heurísticas habituales: va explícita para que no se pase por alto.
+    vacias = (dedup or {}).get("fuentes_vacias") or {}
     for fuente, f in (datos.get("fuentes") or []):
         pre, post = f.get("chunks_pre", 0), f.get("chunks_post", 0)
         if pre > 0 and post == 0:
+            vaciada = vacias.get(fuente)
+            causa = ""
+            if vaciada and vaciada.get("motivo") == "dedup_coseno":
+                par = vaciada["pareja"]
+                causa = (f" vaciada por dedup semántica frente a `{par['fuente']}` "
+                         f"(sim {vaciada['sim']})")
             s.append(
                 f"**Fuente vacía (crítica):** `{fuente}` quedó con 0 chunks "
-                f"post-dedup ({pre} pre): su contenido ya no se recupera. "
-                "Revisa `DEDUP_UMBRAL` o regenera el índice; con una única "
-                "fuente de 1 chunk el descarte suele ser azar de la dedup "
+                f"post-dedup ({pre} pre): su contenido ya no se recupera, "
+                f"{causa} — revisa `DEDUP_UMBRAL` o regenera el índice; con una "
+                "única fuente de 1 chunk el descarte suele ser azar de la dedup "
                 "semántica (el LLM de TAG varía entre ejecuciones)."
             )
     if dedup is not None and dedup.get("descartados_pct", 0) > 50:
@@ -252,6 +301,7 @@ def _scoring_md(scoring: dict[str, Any] | None, dedup: dict[str, Any] | None) ->
             f"| tiempo | {formatear_duracion(dedup.get('tiempo_s'))} | fase DEDUP |",
             "",
         ]
+        lineas += _auditoria_md(dedup)
     lineas += _cobertura_md(dedup)
     return lineas
 

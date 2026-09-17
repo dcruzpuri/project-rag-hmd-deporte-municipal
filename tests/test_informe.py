@@ -313,6 +313,87 @@ class TestGenerarInforme:
         assert "| política | n |" not in ruta.read_text(encoding="utf-8")
 
 
+class TestInformeAuditoriaDescartes:
+    """Sección 6.2: tabla de descartes por fuente + muestra de pares coseno;
+    la señal 7 de fuente vacía incluye la causa (par vencedor y similitud)."""
+
+    @staticmethod
+    def _dedup_con_auditoria() -> dict[str, Any]:
+        ev = {
+            "motivo": "dedup_coseno",
+            "sim": 0.96,
+            "fuente": "b.txt",
+            "chunk_index": 1,
+            "policy": None,
+            "snip": "B clon de A",
+            "pareja": {"fuente": "a.txt", "chunk_index": 0,
+                       "score": 0.9, "snip": "A"},
+        }
+        return {
+            "umbral": 0.9, "chunks_pre": 3, "chunks_post": 2,
+            "descartados_exactos": 0, "descartados_semantico": 1,
+            "descartados_total": 1, "descartados_pct": 33.3, "tiempo_s": 0.1,
+            "tags_top3_post": [],
+            "descartes": [ev],
+            "descartes_por_fuente": {"b.txt": 1},
+            "fuentes_vacias": {"b.txt": ev},
+            "audit": {"ruta": "output/dedup_audit.jsonl", "n": 1},
+        }
+
+    @staticmethod
+    def _fuentes(a_post: int) -> list:
+        return [
+            ("a.txt", {"docs": 1, "chunks_pre": 2, "chunks_post": 2}),
+            ("b.txt", {"docs": 1, "chunks_pre": 1, "chunks_post": a_post}),
+        ]
+
+    def test_muestra_pares_y_fila_auditoria_en_62(self, tmp_path: Path) -> None:
+        ruta = generar_informe(
+            _datos(dedup=self._dedup_con_auditoria(), fuentes=self._fuentes(0)),
+            tmp_path / "informe.md",
+        )
+        texto = ruta.read_text(encoding="utf-8")
+        assert "Muestra" in texto
+        assert "`b.txt` · chunk 1" in texto
+        assert "`a.txt` · chunk 0" in texto
+        assert "0.96" in texto
+        assert "| b.txt | 1 |" in texto  # tabla de descartes por fuente
+        assert "dedup_audit.jsonl" in texto and "(1 pares)" in texto
+
+    def test_62_sin_auditoria_fila_desactivada(self, tmp_path: Path) -> None:
+        dedup = {
+            "umbral": 0.9, "chunks_pre": 3, "chunks_post": 3,
+            "descartados_exactos": 0, "descartados_semantico": 0,
+            "descartados_total": 0, "descartados_pct": 0.0, "tiempo_s": 0.1,
+        }
+        ruta = generar_informe(_datos(dedup=dedup, fuentes=self._fuentes(1)),
+                               tmp_path / "informe.md")
+        texto = ruta.read_text(encoding="utf-8")
+        assert "Muestra" not in texto
+        assert "Auditoría de pares" in texto and "desactivada" in texto
+
+    def test_senal_fuente_vacia_incluye_causa(self, tmp_path: Path) -> None:
+        ruta = generar_informe(
+            _datos(dedup=self._dedup_con_auditoria(), fuentes=self._fuentes(0)),
+            tmp_path / "informe.md",
+        )
+        texto = ruta.read_text(encoding="utf-8")
+        assert "`b.txt` quedó con 0 chunks post-dedup (1 pre)" in texto
+        assert "vaciada por dedup semántica frente a `a.txt` (sim 0.96)" in texto
+        assert "DEDUP_UMBRAL" in texto  # la recomendación genérica sigue presente
+
+    def test_pares_con_caracteres_tabla_se_sanitizean(self, tmp_path: Path) -> None:
+        """Un snippet con '|' no rompe la tabla markdown de la muestra."""
+        dedup = self._dedup_con_auditoria()
+        dedup["descartes"][0]["snip"] = "a|b" * 5
+        ruta = generar_informe(
+            _datos(dedup=dedup, fuentes=self._fuentes(0)),
+            tmp_path / "informe.md",
+        )
+        # el pipe se sustituye por una barra invertida en la celda
+        assert "a\\|b" in ruta.read_text(encoding="utf-8")
+
+
 class TestMetricasRuntime:
     """scoring/dedup vuelcan sus métricas en el dict ``info`` del pipeline."""
 

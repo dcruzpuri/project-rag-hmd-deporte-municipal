@@ -77,6 +77,21 @@ def test_pipeline_genera_metricas_para_el_informe(
     assert report["indice"]["vectores_insertados"] == report["num_chunks_post_dedup"]
     assert report["preflight"]["verificado_por"] == "online"
 
+    # auditoría de pares: JSON escrito en output/ del cwd (aislado en tmp_path) +
+    # resumen_fases EMBED muestra el n.º de vectores PRE-dedup (el dedup no debe
+    # hacer visible una cifra que no es la de los embeddings generados)
+    import json as _json
+
+    _audit = tmp_path / "output" / "dedup_audit.jsonl"
+    assert _audit.exists()
+    registros = [_json.loads(l) for l in
+                 _audit.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert all(r["motivo"] in ("dedup_coseno", "dedup_clave") for r in registros)
+    assert report["dedup"]["audit"]["n"] == len(registros)
+    assert report["dedup"]["audit"]["ruta"].endswith("dedup_audit.jsonl")
+    assert report["resumen_fases"]["EMBED"].startswith(
+        f"{report['num_chunks_pre_dedup']} vectores de")
+
     # el informe referencia la carpeta GUID creada por ChromaDB
     guid_chroma = report["indice"]["guid_chroma"]
     assert guid_chroma

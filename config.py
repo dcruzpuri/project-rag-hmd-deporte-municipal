@@ -97,6 +97,11 @@ EMBED_DIM_MAX_GOOGLE: int | None = _dim_max("google")
 # --- TSD: tagging + scoring + dedup ---
 TAG_SCORING_DEDUP: bool = os.getenv("TAG_SCORING_DEDUP", "true").lower() == "true"
 DEDUP_UMBRAL: float = float(os.getenv("DEDUP_UMBRAL", "0.93"))  # punto de partida para all-minilm-l6-v2
+# Auditoría de pares descartados: una línea JSON por descarte (coseno/clave,
+# similitud del par, chunk afectado y vencedor) para inspeccionar por qué y
+# contra qué se descartó cada chunk. Vacío = sin auditoría.
+DEDUP_AUDIT: bool = os.getenv("DEDUP_AUDIT", "true").lower() == "true"
+DEDUP_AUDIT_RUTA: str = os.getenv("DEDUP_AUDIT_RUTA", "output/dedup_audit.jsonl")
 
 # --- ChromaDB ---
 CHROMA_DIR: str = os.getenv("CHROMA_DIR", "./output/chroma_db")
