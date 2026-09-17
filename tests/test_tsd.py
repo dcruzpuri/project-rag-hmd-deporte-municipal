@@ -255,6 +255,7 @@ class TestAuditoriaDescartes:
         docs = [
             Document(page_content="A", metadata={
                 "source": "a.txt", "semantic_score": 0.9, "chunk_index": 0,
+                "row": 3,
             }),
             Document(page_content="B clon de A", metadata={
                 "source": "b.txt", "semantic_score": 0.5, "chunk_index": 1,
@@ -269,20 +270,22 @@ class TestAuditoriaDescartes:
         assert ev["motivo"] == "dedup_coseno"
         assert ev["fuente"] == "b.txt" and ev["chunk_index"] is not None
         assert ev["sim"] >= 0.9
+        assert ev["pos"] is None  # chunk no CSV: sin fila
         assert ev["snip"].startswith("B clon de A")  # snippet de la fuente descartada
         par = ev["pareja"]
         assert par["fuente"] == "a.txt"
         assert par["score"] == 0.9
+        assert par["pos"] == 3  # fila del CSV ganador
 
     def test_evento_clave_para_politicas_exactas(self) -> None:
         docs = [
             Document(page_content="entidad 1", metadata={
                 "source": "a.csv", "dedup_policy": "exact_key",
-                "entity_key": "k1", "semantic_score": 0.9,
+                "entity_key": "k1", "row": 2, "semantic_score": 0.9,
             }),
             Document(page_content="entidad 1 bis", metadata={
                 "source": "a.csv", "dedup_policy": "exact_key",
-                "entity_key": "k1", "semantic_score": 0.8,
+                "entity_key": "k1", "row": 5, "semantic_score": 0.8,
             }),
         ]
         vecs = [[1.0, 0.0], [0.0, 1.0]]
@@ -292,6 +295,30 @@ class TestAuditoriaDescartes:
         assert ev["motivo"] == "dedup_clave"
         assert ev["policy"] == "exact_key"
         assert ev["fuente"] == "a.csv"
+        # claves de identidad: la que colisionó (entity_key) + fila del chunk
+        assert ev["claves"]["entity_key"] == "k1"
+        assert ev["claves"]["group_key"] is None
+        assert ev["pos"] == 5
+
+    def test_evento_clave_group_only(self) -> None:
+        """group_only: la clave de identidad es group_key (sin fila)."""
+        docs = [
+            Document(page_content="grupo X", metadata={
+                "source": "a.csv", "dedup_policy": "group_only",
+                "group_key": "barrio|temporada",
+            }),
+            Document(page_content="grupo X repetido", metadata={
+                "source": "a.csv", "dedup_policy": "group_only",
+                "group_key": "barrio|temporada",
+            }),
+        ]
+        vecs = [[1.0, 0.0], [0.0, 1.0]]
+        info: dict = {}
+        deduplicar(list(docs), list(vecs), umbral=0.9, info=info)
+        ev = info["dedup"]["descartes"][0]
+        assert ev["claves"]["group_key"] == "barrio|temporada"
+        assert ev["claves"]["entity_key"] is None
+        assert ev["claves"]["row"] is None
 
     def test_fuentes_vacias_por_coseno(self) -> None:
         """Fuente pre -> 0 post: se registra como vacía con el descarte que la vació."""

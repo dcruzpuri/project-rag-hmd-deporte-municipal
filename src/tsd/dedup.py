@@ -166,13 +166,16 @@ def deduplicar(
     vistos: set[tuple] = set()
     eventos: list[dict[str, Any]] = []  # auditoría: motivo, chunk afectado, pareja
 
-    def _ident(chunk: Document) -> dict[str, Any]:
+    def _snip(chunk: Document) -> str:
+        return (str(chunk.page_content) or "").strip().replace("\n", " ")[:120]
+
+    def _claves(chunk: Document) -> dict[str, Any]:
+        """Claves de identidad de la política exacta (entity_key/group_key/row)."""
         m = chunk.metadata
         return {
-            "fuente": m.get("source", "?"),
-            "chunk_index": m.get("chunk_index"),
-            "snip": (str(chunk.page_content) or "").strip().replace("\n", " ")[:120],
-            "score": m.get("semantic_score", 0.0),
+            "entity_key": m.get("entity_key"),
+            "group_key": m.get("group_key"),
+            "row": m.get("row"),
         }
 
     for i, chunk in enumerate(chunks):
@@ -188,7 +191,9 @@ def deduplicar(
                 "policy": policy,
                 "fuente": chunk.metadata.get("source", "?"),
                 "chunk_index": chunk.metadata.get("chunk_index"),
-                "snip": (str(chunk.page_content) or "").strip().replace("\n", " ")[:120],
+                "pos": chunk.metadata.get("row"),
+                "snip": _snip(chunk),
+                "claves": _claves(chunk),
             })
             continue
         vistos.add(clave)
@@ -207,13 +212,15 @@ def deduplicar(
                 "sim": round(float(sim), 4),
                 "fuente": derro.metadata.get("source", "?"),
                 "chunk_index": derro.metadata.get("chunk_index"),
+                "pos": derro.metadata.get("row"),
                 "policy": derro.metadata.get("dedup_policy"),
-                "snip": (str(derro.page_content) or "").strip().replace("\n", " ")[:120],
+                "snip": _snip(derro),
                 "pareja": {
                     "fuente": vict.metadata.get("source", "?"),
                     "chunk_index": vict.metadata.get("chunk_index"),
+                    "pos": vict.metadata.get("row"),
                     "score": vict.metadata.get("semantic_score", 0.0),
-                    "snip": (str(vict.page_content) or "").strip().replace("\n", " ")[:120],
+                    "snip": _snip(vict),
                 },
             })
 
