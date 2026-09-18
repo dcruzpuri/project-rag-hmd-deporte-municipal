@@ -12,9 +12,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from typing import Any
+
 import numpy as np
 import requests
-from typing import Any
 
 from src import embed as embed_mod
 from src.embed import (
@@ -134,6 +135,9 @@ class TestPreflightHuggingFace:
 
 class TestPreflightGoogle:
     def test_sin_api_key_cae_al_cache(self, monkeypatch):
+        # Aíslandolo: el .env real puede llevar una GOOGLE_API_KEY, y entonces
+        # la comprobación iría a online. Pateamos la constante a vacía (sin key).
+        monkeypatch.setattr(embed_mod, "GOOGLE_API_KEY", "")
         monkeypatch.setenv("EMBED_DIM_MAX_GOOGLE", "768")
         res = verificar_modelo_disponible({
             "EMBED_PROVIDER": "google",
@@ -264,11 +268,12 @@ class TestSeguridadDimensiones:
         assert "máxima del modelo (2560)" in msg
         assert "384 dims (EMBED_DIM)" in msg
 
-    def test_embed_dim_mayor_aviso_ajuste(self):
-        # EMBED_DIM 2560 > dim del modelo 1024: el recorte no aplica, se ajusta
+    def test_embed_dim_mayor_aviso(self):
+        # EMBED_DIM 2560 > dim generada 1024: el índice se crea con la dim generada
         nivel, msg = _comprobar_dim(1024, 2560, None)
         assert nivel == "aviso"
-        assert "ajustado a 1024" in msg
+        assert "es mayor que la dim generada (1024)" in msg
+        assert "el índice se crea con 1024 dims" in msg
 
     def test_aviso_con_cache(self):
         nivel, _msg = _comprobar_dim(1024, 2560, 1024)

@@ -48,52 +48,103 @@ def _fases_md(fases: dict[str, float], resumen: dict[str, str]) -> str:
     return "\n".join(lineas)
 
 
-def _scoring_md(scoring: dict[str, Any] | None, dedup: dict[str, Any] | None) -> list[str]:
-    """Sección TSD (scoring + dedup); si TSD va desactivado, lo indica."""
-    if scoring is None and dedup is None:
-        return [
-            "## 6. TSD (scoring + dedup)",
-            "",
-            "Bloque TSD desactivado (`TAG_SCORING_DEDUP=false`): sin scoring ni deduplicación.",
-            "",
-        ]
-    lineas = ["## 6. TSD (scoring + dedup)", ""]
-    lineas += _cobertura_md(dedup)
-    if scoring is not None:
+_GLOSARIO_TSD = [
+    "> Definiciones de métricas (los vectores están normalizados: norma L2 = 1, métrica coseno):",
+    "> - `semantic_score = 0.45·relevancia_LLM + 0.20·centralidad + 0.20·(1 − redundancia) + 0.15·autoridad`, recortado a [0, 1]. Señal interna de priorización del corpus, **no** una medida de calidad del chunk ni de relevancia frente a consultas.",
+    "> - `centralidad`: coseno del chunk contra el centroide de la colección (media de todos los vectores). Coherencia con el centro del corpus.",
+    "> - `redundancia`: coseno del chunk con su vecino más cercano (FAISS sobre los vectores normalizados; se excluye el propio). Alta redundancia media puede ser estructural (plantillas/CSVs de hechos) y no indicar corpus roto.",
+    "> - **Política exacta**: chunk cuya metadata `dedup_policy` es `exact_key`, `group_only` o `exact_only` (decidida por el asesor de CSVs); se deduplica **por clave** (nunca por coseno): la repetición literal se descarta, los semánticos cercanos no.",
+]
+
+
+def _fuentes_md(fuentes: list[tuple[str, dict[str, int]]]) -> list[str]:
+    """Tabla fuentes -> (docs, chunks pre, chunks post): los tres niveles del corpus.
+
+    ``fuentes`` es ``sorted(fuentes.items())`` (orden alfabético determinista).
+    Con corpus vacío (sin datos volcados) no se renderiza.
+    """
+    if not fuentes:
+        return []
+    lineas = ["| fuente | docs | chunks pre | chunks post (dedup) |", "|---|---|---|---|"]
+    tot_docs = tot_pre = tot_post = 0
+    for fuente, f in fuentes:
+        lineas.append(f"| {fuente} | {f['docs']} | {f['chunks_pre']} | {f['chunks_post']} |")
+        tot_docs += f["docs"]
+        tot_pre += f["chunks_pre"]
+        tot_post += f["chunks_post"]
+    lineas.append(f"| **total** | {tot_docs} | {tot_pre} | {tot_post} |")
+    vacias = [fuente for fuente, f in fuentes if f["chunks_pre"] and not f["chunks_post"]]
+    if vacias:
+        lineas.append(f"> **Fuente vacía post-dedup (crítica):** {', '.join(vacias)}")
+    return lineas
+
+
+def _redundancia_politica_md(scoring: dict[str, Any]) -> list[str]:
+    """Tabla de redundancia por política de dedup (6.1); opcional: si no hay
+    datos volcados, no se muestra. El umbral se toma del volcado del scoring
+    (``redundancia_umbral`` = DEDUP_UMBRAL), no hardcodeado."""
+    if scoring.get("redundancia_umbral") is None:
+        return []
+    umbral = scoring["redundancia_umbral"]
+    por_pol = scoring.get("redundancia_por_politica") or {}
+    if not por_pol:
+        return []
+    lineas = [
+        f"Redundancia (similitud con el vecino más cercano) por política de deduplicación (umbral `{umbral}`):",
+        "",
+        "| política | n | media | p50 | p90 | % ≥ umbral |",
+        "|---|---|---|---|---|---|",
+    ]
+    for pol in sorted(por_pol):
+        r = por_pol[pol]
+        lineas.append(f"| {pol} | {r['n']} | {r['media']} | {r['p50']} | {r['p90']} | {r['pct_sup_umbral']} % |")
+    lineas += [
+        "",
+        "> La alta media de `group_only`/`exact_key` es estructural (plantillas y entidades de CSV): esas políticas se dedup por clave y nunca por coseno.",
+        "",
+    ]
+    return lineas
+
+
+def _auditoria_md(dedup: dict[str, Any]) -> list[str]:
+    """Auditoría de pares descartados en la 6.2: línea del JSONL (o desactivada),
+    tabla por fuente y muestra de los top-5 pares coseno por similitud.
+    Opcional: si el dedup no volcó datos de auditoría, solo se indica el estado."""
+    lineas: list[str] = []
+    audit = dedup.get("audit")
+    if audit:
+        lineas.append(
+            f"- **Auditoría de pares:** `{audit['ruta']}` ({audit['n']} pares) "
+            "— muestrea la auditoría con `scripts/auditar_dedup.py`"
+        )
+    else:
+        lineas.append("- **Auditoría de pares:** desactivada (DEDUP_AUDIT=false)")
+    lineas.append("")
+    por_fuente = dedup.get("descartes_por_fuente") or {}
+    if por_fuente:
+        lineas += ["**Descartes por fuente:**", "",
+                   "| fuente | descartes |", "|---|---|"]
+        for fuente, n in sorted(por_fuente.items()):
+            lineas.append(f"| {fuente} | {n} |")
+        lineas.append("")
+    muestras = [e for e in (dedup.get("descartes") or [])
+                if e["motivo"] == "dedup_coseno"]
+    if muestras:
+        tope = sorted(muestras, key=lambda e: e["sim"], reverse=True)[:5]
         lineas += [
-            "### 6.1 Scoring (`semantic_score`)",
+            "**Muestra (top 5 pares coseno por similitud):**",
             "",
-            "| Métrica | Valor | Interpretación |",
+            "| sim | descartado | conservado (vencedor) |",
             "|---|---|---|",
-            f"| mín | {scoring['semantic_score_min']} | peor chunk puntuado |",
-            f"| media | {scoring['semantic_score_media']} | calidad media del corpus |",
-            f"| máx | {scoring['semantic_score_max']} | mejor chunk del corpus |",
-            (
-                f"| chunks con score ≥ 0.6 | {scoring['score_buenos_n']} de {scoring['chunks_n']} ({round(scoring['score_buenos_pct'], 2)} %) | cuota de chunks 'útiles' según el modelo |"
-                if scoring.get("score_buenos_n") is not None and scoring.get("chunks_n") is not None
-                else f"| chunks con score ≥ 0.6 | {round(scoring['score_buenos_pct'], 2)} % | cuota de chunks 'útiles' según el modelo |"
-            ),
-            f"| centralidad media | {scoring['centralidad_media']} | cohesión del corpus (coseno vs. centroide) |",
-            f"| redundancia media | {scoring['redundancia_media']} | similitud media con el vecino más cercano |",
-            f"| tiempo | {formatear_duracion(scoring['tiempo_s'])} | fase SCORING |",
-            "",
         ]
-    if dedup is not None:
-        lineas += [
-            "### 6.2 Deduplicación",
-            "",
-            "| Métrica | Valor |",
-            "|---|---|",
-            f"| umbral coseno (`DEDUP_UMBRAL`) | {dedup['umbral']} | |",
-            f"| chunks antes | {dedup['chunks_pre']} | |",
-            f"| chunks después | {dedup['chunks_post']} | |",
-            f"| descartados (política exacta) | {dedup['descartados_exactos']} | |",
-            f"| descartados (semánticos) | {dedup['descartados_semantico']} | |",
-            f"| total descartados | {dedup['descartados_total']} ({dedup['descartados_pct']} %) | |",
-            f"| tiempo | {formatear_duracion(dedup.get('tiempo_s'))} | fase DEDUP |",
-            "",
-        ]
-    lineas += _cobertura_md(dedup)
+        for e in tope:
+            par = e["pareja"]
+            der = f"`{e['fuente']}` · chunk {e.get('chunk_index')} — \"{e['snip'][:60]}\""
+            ven = (f"`{par['fuente']}` · chunk {par.get('chunk_index')} "
+                   f"· score {par['score']} — \"{par['snip'][:60]}\"")
+            der_s, ven_s = der.replace("|", "\\|"), ven.replace("|", "\\|")
+            lineas.append(f"| {e['sim']} | {der_s} | {ven_s} |")
+        lineas.append("")
     return lineas
 
 
@@ -123,6 +174,9 @@ def _cobertura_md(dedup: dict[str, Any] | None) -> list[str]:
         f"> **top 3 tags (post):** "
         f"{' · '.join(f'{t} ({n})' for t, n in top3) if top3 else '—'}"
     )
+    lineas.append(
+        "> La categoría es única por fuente (la intención dominante según TAG); los tags son multi-faces (un chunk puede llevar varios). Limitación de TAG: solo ve el primer documento de cada fuente (≤ 6000 caracteres), que decide categoría, tags y relevancia."
+    )
     lineas.append("")
     return lineas
 
@@ -137,10 +191,31 @@ def _senales(datos: dict[str, Any]) -> list[str]:
     scoring = datos.get("scoring")
 
     if stats.get("cortos"):
+        plural = "chunks" if stats["cortos"] != 1 else "chunk"
         s.append(
-            f"**Chunking:** hay {stats['cortos']} chunks < 50 caracteres (ruido probable). "
-            "Revisa los loaders o sube `CHUNK_SIZE`."
+            f"**Chunking:** hay {stats['cortos']} {plural} < 50 caracteres (ruido "
+            "probable). Revisa los loaders o sube `CHUNK_SIZE`."
         )
+    # Alerta crítica (fuente a 0 post-dedup): si un archivo entero desaparece
+    # del índice, su contenido deja de ser recuperable. No la ocultan las
+    # heurísticas habituales: va explícita para que no se pase por alto.
+    vacias = (dedup or {}).get("fuentes_vacias") or {}
+    for fuente, f in (datos.get("fuentes") or []):
+        pre, post = f.get("chunks_pre", 0), f.get("chunks_post", 0)
+        if pre > 0 and post == 0:
+            vaciada = vacias.get(fuente)
+            causa = ""
+            if vaciada and vaciada.get("motivo") == "dedup_coseno":
+                par = vaciada["pareja"]
+                causa = (f" vaciada por dedup semántica frente a `{par['fuente']}` "
+                         f"(sim {vaciada['sim']})")
+            s.append(
+                f"**Fuente vacía (crítica):** `{fuente}` quedó con 0 chunks "
+                f"post-dedup ({pre} pre): su contenido ya no se recupera, "
+                f"{causa} — revisa `DEDUP_UMBRAL` o regenera el índice; con una "
+                "única fuente de 1 chunk el descarte suele ser azar de la dedup "
+                "semántica (el LLM de TAG varía entre ejecuciones)."
+            )
     if dedup is not None and dedup.get("descartados_pct", 0) > 50:
         s.append(
             f"**Dedup:** se descartó el {dedup['descartados_pct']} % de los chunks (>50 %). "
@@ -185,6 +260,65 @@ def _senales(datos: dict[str, Any]) -> list[str]:
     return [f"- {x}" for x in s]
 
 
+def _scoring_md(scoring: dict[str, Any] | None, dedup: dict[str, Any] | None) -> list[str]:
+    """Sección 6 (TSD) completa: 6.1 Scoring → 6.2 Dedup → 6.3 Cobertura (una sola pasada)."""
+    if scoring is None and dedup is None:
+        return ["## 6. TSD (scoring + dedup)", "", "Bloque TSD desactivado (TAG_SCORING_DEDUP=false).", ""]
+    lineas = ["## 6. TSD (scoring + dedup)", ""]
+    if scoring is not None:
+        lineas += [
+            "### 6.1 Scoring (`semantic_score`)",
+            "",
+            "| Métrica | Valor | Interpretación |",
+            "|---|---|---|",
+            f"| min | {scoring.get('semantic_score_min', 0)} | score más bajo del corpus |",
+            f"| media | {scoring.get('semantic_score_media', 0)} | |",
+            f"| máx | {scoring.get('semantic_score_max', 0)} | score más alto del corpus |",
+            f"| centralidad media | {scoring.get('centralidad_media', 0)} | coherencia con el centroide |",
+            f"| redundancia media | {scoring.get('redundancia_media', 0)} | similitud con el vecino más cercano |",
+            (
+                f"| chunks con score ≥ 0.6 | {scoring.get('score_buenos_n', 0)} de {scoring.get('chunks_n', 0)} "
+                f"({scoring.get('score_buenos_pct', 0.0)} %) | umbral interno de esta fase: "
+                "NO es precisión ni relevancia frente a consultas |"
+            ),
+            f"| tiempo | {formatear_duracion(scoring.get('tiempo_s'))} | fase SCORING |",
+            "",
+        ]
+        lineas += _GLOSARIO_TSD
+        lineas += [""] + _redundancia_politica_md(scoring)
+    if dedup is not None:
+        lineas += [
+            "### 6.2 Dedup",
+            "",
+            "| Métrica | Valor |",
+            "|---|---|",
+            f"| umbral coseno (`DEDUP_UMBRAL`) | {dedup.get('umbral')} |",
+            f"| chunks pre | {dedup.get('chunks_pre', 0)} |",
+            f"| chunks post | {dedup.get('chunks_post', 0)} |",
+            f"| descartados exactos | {dedup.get('descartados_exactos', 0)} |",
+            f"| descartados semánticos | {dedup.get('descartados_semantico', 0)} |",
+            f"| descartados total | {dedup.get('descartados_total', 0)} ({dedup.get('descartados_pct', 0)} %) |",
+            f"| tiempo | {formatear_duracion(dedup.get('tiempo_s'))} | fase DEDUP |",
+            "",
+        ]
+        lineas += _auditoria_md(dedup)
+    lineas += _cobertura_md(dedup)
+    return lineas
+
+
+def _integridad_md(integridad: dict[str, Any] | None) -> list[str]:
+    """Sección 5 — línea de integridad de los vectores finales (solo si hay datos)."""
+    if not integridad or integridad.get("n", 0) == 0:
+        return []
+    return [
+        (
+            f"- **Integridad:** {integridad['n']} vectores · dim {integridad['dim']} · "
+            f"NaN/Inf {integridad['nan_inf']} · ceros {integridad['cero']} · "
+            f"norma L2 mín {integridad['norma_min']:.4f} / media {integridad['norma_media']:.4f} / máx {integridad['norma_max']:.4f}"
+        ),
+    ]
+
+
 def generar_informe(datos: dict[str, Any], ruta: str | Path | None = None) -> Path:
     """Escribe el informe markdown de indexación y devuelve su ruta.
 
@@ -193,7 +327,8 @@ def generar_informe(datos: dict[str, Any], ruta: str | Path | None = None) -> Pa
             rutas, parametros (lista de (variable, valor, nota)), tiempo_total_s,
             fases (tiempos por fase), resumen_fases (texto por fase), num_documentos,
             num_chunks_pre_dedup/post_dedup, chunk_stats, dim_embedding, dim_msg,
-            preflight, indice (nombre/vectores/spacer), scoring, dedup.
+            preflight, indice (nombre/vectores/space), scoring, dedup,
+            fuentes ([(fuente, {docs, chunks_pre, chunks_post}), ...]), integridad.
         ruta: ruta del informe (por defecto
             ``output/informe_index_<guid8_chroma>_aaaaMMdd_hhmm.md``, con la fecha y
             hora locales de la ejecución).
@@ -231,6 +366,11 @@ def generar_informe(datos: dict[str, Any], ruta: str | Path | None = None) -> Pa
     ]
     if preflight and preflight.get("dim_modelo"):
         lineas.append(f"- **Dim máxima del modelo (`EMBED_DIM_MAX_*`):** {preflight['dim_modelo']}")
+    if not preflight.get("dim_modelo"):
+        lineas.append(
+            "- **Dim máxima del modelo (`EMBED_DIM_MAX_*`):** no declarada "
+            "(el preflight solo verifica la disponibilidad, no la dimensión)"
+        )
     lineas += [
         f"- **Aviso:** {preflight.get('aviso') or 'sin avisos'}",
         "",
@@ -238,9 +378,13 @@ def generar_informe(datos: dict[str, Any], ruta: str | Path | None = None) -> Pa
         "",
         _fases_md(fases, resumen_fases),
         "",
-        "## 4. Chunking",
+        "## 4. Corpus y chunking (longitudes en caracteres)",
         "",
-        "| Métrica | Valor |",
+        "> **fuente** = archivo original · **documento** = salida de LOAD (página/fila/grupo) · **chunk** = salida de CHUNK (íntegro si entidad `no_chunk`).",
+        "",
+        *_fuentes_md(datos.get("fuentes") or []),
+        *([""] if (datos.get("fuentes") or []) else []),
+        "| Métrica (caracteres) | Valor |",
         "|---|---|",
         f"| min | {stats.get('min', 0)} |",
         f"| p25 | {stats.get('p25', 0)} |",
@@ -249,6 +393,9 @@ def generar_informe(datos: dict[str, Any], ruta: str | Path | None = None) -> Pa
         f"| p75 | {stats.get('p75', 0)} |",
         f"| max | {stats.get('max', 0)} |",
         f"| chunks cortos (< 50) | {stats.get('cortos', 0)} |",
+        f"| íntegras (`no_chunk`) | {stats.get('sin_trocear', 0)} |",
+        "",
+        "> Un `max` mayor que `CHUNK_SIZE` no es un error: son las entidades indexadas íntegras (una fila = un chunk).",
         "",
         "## 5. Índice final (ChromaDB)",
         "",
@@ -258,6 +405,7 @@ def generar_informe(datos: dict[str, Any], ruta: str | Path | None = None) -> Pa
         f"- **Vectores insertados:** {indice.get('vectores_insertados', datos.get('num_chunks_post_dedup', 0))}",
         f"- **Vectores totales en la colección:** {indice.get('vectores_totales', '—')}",
         f"- **Recreado (`--recreate-index`):** {indice.get('recreado', False)}",
+        *_integridad_md(datos.get("integridad")),
         "",
         *_scoring_md(scoring, dedup),
         "## 7. Señales y criterios de decisión",

@@ -97,7 +97,7 @@ def leer_filas_csv(path: str, sample_size: int | None = None) -> tuple[list[str]
 
     Args:
         path: ruta del CSV.
-        sample_size: límite de filas leídas (para el perfil); ``None`` = todo.
+        sample_size: límite de filas leídas (para el perfil); `None` = todo.
     """
     filas: list[dict[str, str]] = []
     columnas: list[str] = []
@@ -252,13 +252,13 @@ class CsvAdvice:
     """Decisión de tratamiento para un CSV.
 
     Fields:
-        csv_kind: ``entity_table`` | ``fact_table`` | ``time_series`` |
-            ``textual_table`` | ``unknown_csv``.
-        treatment: ``entity_doc`` | ``grouped_doc`` | ``row_as_doc``.
-        dedup_policy: ``exact_only`` | ``exact_key`` | ``group_only`` |
-            ``semantic_optional`` (los demás por omisión -> dedup semántica).
+        csv_kind: `entity_table` | `fact_table` | `time_series` |
+            `textual_table` | `unknown_csv`.
+        treatment: `entity_doc` | `grouped_doc` | `row_as_doc`.
+        dedup_policy: `exact_only` | `exact_key` | `group_only` |
+            `semantic_optional` (los demás por omisión -> dedup semántica).
         id_columns / measure_columns / grouping_keys: en forma basificada
-            (la misma que las claves de las filas de ``leer_filas_csv``).
+            (la misma que las claves de las filas de `leer_filas_csv`).
     """
 
     source: str
@@ -272,9 +272,9 @@ class CsvAdvice:
     reason: str = ""
 
 
-# Recetas de fuentes conocidas (datos.madrid.es). Las claves van basificadas
-# (mismo formato que ``leer_filas_csv``). Si la regeneración cambia el esquema,
-# ``match_known_source`` devuelve ``None`` y la heurística toma el relevo.
+# Recetas de fuentes conocidas (datos.madrid.es). Las claves van base-encoded
+# (mismo formato que `leer_filas_csv`). Si la regeneración cambia el esquema,
+# `match_known_source` devuelve `None` y la heurística toma el relevo.
 RECETAS_CONOCIDAS: dict[str, dict[str, object]] = {
     "200186-0-polideportivos.csv": {
         "kind": "entity_table", "treatment": "entity_doc", "dedup": "exact_key",
@@ -318,7 +318,7 @@ RECETAS_CONOCIDAS: dict[str, dict[str, object]] = {
 
 
 def match_known_source(profile: CsvProfile) -> CsvAdvice | None:
-    """Receta fija para ``source`` conocido. ``None`` si la fuente no es
+    """Receta fija para `source` conocido. `None` si la fuente no es
     conocida o su esquema ya no contiene las columnas esperadas."""
     receta = RECETAS_CONOCIDAS.get(profile.source)
     if receta is None:
