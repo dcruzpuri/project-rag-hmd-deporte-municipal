@@ -1,3 +1,18 @@
+# RAG Deporte Municipal Madrid
+
+Asistente conversacional que responde preguntas sobre el deporte municipal de Madrid usando Retrieval-Augmented Generation (RAG). Los datos vienen del portal de datos abiertos del Ayuntamiento de Madrid.
+
+## Equipo
+
+- **Héctor** — corpus, pipeline de indexación, ChromaDB
+- **Miguel** — retrieval, generación, orquestación (`responder()`)
+- **David** — interfaz Streamlit, evaluación, documentación
+
+## Requisitos
+
+- Python 3.10+
+- Ollama instalado y corriendo (`ollama serve`)
+- API key de Google Gemini
 <<<<<<< HEAD
 # Generación Aumentada por Recuperación (RAG) para el Deporte Municipal del Ayuntamiento de Madrid
 =======
@@ -121,9 +136,7 @@ Nota: si se cambia el modelo de embeddings o el troceado, es preciso **regenerar
 
 ## Uso
 
-### Indexar el corpus
-
-Desde la raíz del proyecto:
+### Interfaz web
 
 ```bash
 python -m src.pipeline data --recreate-index

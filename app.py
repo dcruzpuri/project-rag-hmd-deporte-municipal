@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import random
 import time
 from collections.abc import Iterator
 
 import streamlit as st
+from src.logic import responder
 
 # Configuración de página
 st.set_page_config(
@@ -29,17 +29,11 @@ def mensaje_bienvenida() -> dict:
         ),
     }
 
-# Respuesta simulada hasta que responder() esté lista
-RESPUESTAS = [
-    "Puedo ayudarte con información sobre tarifas e instalaciones deportivas de Madrid.",
-    "Consulta sobre abonos, piscinas, polideportivos y normativa municipal.",
-    "Buena pregunta. Déjame buscar en el corpus de Deporte Municipal Madrid.",
-]
 
 # Sidebar
 with st.sidebar:
     st.header("Configuración")
-    top_k = st.slider("TOP_K (chunks recuperados)", min_value=1, max_value=10, value=3)
+    top_k = st.slider("TOP_K (chunks recuperados)", min_value=1, max_value=5, value=3)
     st.divider()
     st.markdown("Corpus disponible")
     st.markdown("- Tarifas instalaciones (PDF)")
@@ -59,6 +53,9 @@ st.caption("Consulta información sobre instalaciones, tarifas y normativa depor
 if "messages" not in st.session_state:
     st.session_state.messages = [mensaje_bienvenida()]
 
+if "last_resultado" not in st.session_state:
+    st.session_state.last_resultado = None
+
 # Mostrar historial
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
@@ -70,10 +67,45 @@ if prompt := st.chat_input("Escribe tu pregunta aquí..."):
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    respuesta = f"{random.choice(RESPUESTAS)}\n\n_(Simulado — TOP_K: {top_k})_"
+    with st.spinner("Buscando en el corpus..."):
+        resultado = responder(prompt, top_k=top_k)
 
     with st.chat_message("assistant"):
-        escrito = st.write_stream(stream_palabras(respuesta))
-        contenido = escrito if isinstance(escrito, str) else respuesta
+        if resultado.get("error"):
+            st.error(resultado["error"])
+        else:
+            escrito = st.write_stream(stream_palabras(resultado["respuesta"]))
+            contenido = escrito if isinstance(escrito, str) else resultado["respuesta"]
+            st.session_state.messages.append({"role": "assistant", "content": contenido})
+    st.session_state.last_resultado = resultado
+    
+# Mostrar fuentes, contexto y métricas del último resultado
+if st.session_state.last_resultado:
+    resultado = st.session_state.last_resultado
+    metrics = resultado.get("metrics", {})
+    fuentes = resultado.get("fuentes", [])
+    chunks = resultado.get("chunks", [])
 
-    st.session_state.messages.append({"role": "assistant", "content": contenido})
+    # Fuentes
+    if fuentes:
+        with st.expander("Fuentes utilizadas"):
+            for fuente in fuentes:
+                st.markdown(f"- `{fuente}`")
+
+    # Contexto recuperado
+    with st.expander("Contexto recuperado (debug)"):
+        if chunks:
+            for i, chunk in enumerate(chunks):
+                st.markdown(f"**Chunk {i+1}** — `{chunk.get('source', 'desconocido')}`")
+                st.text(chunk.get("text", ""))
+                st.divider()
+        else:
+            st.text(resultado.get("contexto", "Sin contexto"))
+
+    # Métricas
+    st.markdown("### Métricas")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("TOP_K", metrics.get("top_k", top_k))
+    col2.metric("Chunks", metrics.get("n_chunks", "-"))
+    col3.metric("Modelo", metrics.get("model", "-"))
+    col4.metric("Abstención", "Sí" if resultado.get("abstained") else "No")
