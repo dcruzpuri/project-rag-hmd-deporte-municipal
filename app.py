@@ -53,6 +53,9 @@ st.caption("Consulta información sobre instalaciones, tarifas y normativa depor
 if "messages" not in st.session_state:
     st.session_state.messages = [mensaje_bienvenida()]
 
+if "last_resultado" not in st.session_state:
+    st.session_state.last_resultado = None
+
 # Mostrar historial
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
@@ -74,13 +77,32 @@ if prompt := st.chat_input("Escribe tu pregunta aquí..."):
             escrito = st.write_stream(stream_palabras(resultado["respuesta"]))
             contenido = escrito if isinstance(escrito, str) else resultado["respuesta"]
             st.session_state.messages.append({"role": "assistant", "content": contenido})
+    st.session_state.last_resultado = resultado
+    
+# Mostrar fuentes, contexto y métricas del último resultado
+if st.session_state.last_resultado:
+    resultado = st.session_state.last_resultado
+    metrics = resultado.get("metrics", {})
+    fuentes = resultado.get("fuentes", [])
+    chunks = resultado.get("chunks", [])
+
+    # Fuentes
+    if fuentes:
+        with st.expander("Fuentes utilizadas"):
+            for fuente in fuentes:
+                st.markdown(f"- `{fuente}`")
 
     # Contexto recuperado
     with st.expander("Contexto recuperado (debug)"):
-        st.text(resultado.get("contexto", "Sin contexto"))
+        if chunks:
+            for i, chunk in enumerate(chunks):
+                st.markdown(f"**Chunk {i+1}** — `{chunk.get('source', 'desconocido')}`")
+                st.text(chunk.get("text", ""))
+                st.divider()
+        else:
+            st.text(resultado.get("contexto", "Sin contexto"))
 
     # Métricas
-    metrics = resultado.get("metrics", {})
     st.markdown("### Métricas")
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("TOP_K", metrics.get("top_k", top_k))
