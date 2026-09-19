@@ -4,7 +4,7 @@
 
 | Archivo | Formato | Contenido |
 |---|---|---|
-| 200186-0-polideportivos.csv | CSV | Centros deportivos municipales |
+| 200186-0-polideportivos.csv | CSV | Centros deportivos municipales |  
 | 200215-0-instalaciones-deportivas.csv | CSV | Instalaciones deportivas |
 | 210227-0-piscinas-publicas.csv | CSV | Piscinas públicas municipales |
 | 212504-0-agenda-actividades-deportes.csv | CSV | Agenda de actividades deportivas |
