@@ -18,6 +18,8 @@ import faiss
 import numpy as np
 from langchain_core.documents import Document
 
+from config import DEDUP_UMBRAL
+
 AUTORIDAD = {
     "reglamento": 1.0,
     "normativa": 1.0,
@@ -58,6 +60,34 @@ def _redundancias(E: np.ndarray) -> np.ndarray:
     D[es_propio] = 0.0  # misma semántica que el antiguo fill_diagonal(sim, 0.0)
     red: np.ndarray = D.max(axis=1)
     return red.astype(np.float32)
+
+
+def _redundancia_por_politica(
+    chunks: list[Document], redundancias: np.ndarray
+) -> dict[str, dict[str, Any]]:
+    """Redundancia (similitud máx vecino más cercano) agrupada por política de dedup.
+
+    Los chunks sin ``dedup_policy`` (o ``semantic_optional``) se agrupan como
+    ``semantica``: son los que de verdad pasan por la dedup coseno.
+    Returns:
+        {política: {n, media, p50, p90, pct_sup_umbral}} (p50/p90 con numpy para
+        soportar n=1; los valores se redondean a 4 decimales para el informe).
+    """
+    grupos: dict[str, list[float]] = {}
+    for i, chunk in enumerate(chunks):
+        pol = chunk.metadata.get("dedup_policy") or "semantica"
+        grupos.setdefault(pol, []).append(float(redundancias[i]))
+    por_pol: dict[str, dict[str, Any]] = {}
+    for pol, vals in grupos.items():
+        a = np.asarray(vals, dtype=np.float32)
+        por_pol[pol] = {
+            "n": int(a.size),
+            "media": round(float(a.mean()), 4),
+            "p50": round(float(np.median(a)), 4),
+            "p90": round(float(np.percentile(a, 90)), 4),
+            "pct_sup_umbral": round(float((a >= DEDUP_UMBRAL).mean()) * 100, 1),
+        }
+    return por_pol
 
 
 def puntuar(chunks: list[Document], embeddings: list[list[float]],
@@ -126,6 +156,13 @@ def puntuar(chunks: list[Document], embeddings: list[list[float]],
                         sum(1 for s in scores if s >= 0.6) / len(scores) * 100, 2
                     ),
                     "tiempo_s": round(time.perf_counter() - t0, 3),
+                    # la redundancia media estructural (group_only/exact_key alta)
+                    # solo es legible segmentada por política: el umbral y el
+                    # % ≥ umbral se calculan con DEDUP_UMBRAL (el que decide el dedup)
+                    "redundancia_umbral": DEDUP_UMBRAL,
+                    "redundancia_por_politica": _redundancia_por_politica(
+                        chunks, redundancias
+                    ),
                 }
             }
         )

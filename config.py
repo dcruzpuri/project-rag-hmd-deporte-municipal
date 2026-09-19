@@ -88,6 +88,9 @@ ABSTENTION_MESSAGE: str = os.getenv(
 # --- Embeddings ---
 EMBED_DIM: int = int(os.getenv("EMBED_DIM", "384"))  # 384 (all-MiniLM) / 3072 (gemini)
 EMBED_BATCH_SIZE: int = int(os.getenv("EMBED_BATCH_SIZE", "30"))
+# Lectura de cada POST a Ollama (/api/embed): en carga fría con el modelo TAG
+# residente, el primer batch puede tardar mucho; default 600 s cubre el offload.
+EMBED_TIMEOUT: int = int(os.getenv("EMBED_TIMEOUT", "600"))
 EXPORT_EMBEDDINGS: bool = os.getenv("EXPORT_EMBEDDINGS", "true").lower() == "true"
 # Caché offline del preflight de disponibilidad (src/embed.py): máxima
 # dimensión que maneja el modelo cuando la comprobación online no se puede
@@ -106,6 +109,11 @@ EMBED_DIM_MAX_GOOGLE: int | None = _dim_max("google")
 # --- TSD: tagging + scoring + dedup ---
 TAG_SCORING_DEDUP: bool = os.getenv("TAG_SCORING_DEDUP", "true").lower() == "true"
 DEDUP_UMBRAL: float = float(os.getenv("DEDUP_UMBRAL", "0.93"))  # punto de partida para all-minilm-l6-v2
+# Auditoría de pares descartados: una línea JSON por descarte (coseno/clave,
+# similitud del par, chunk afectado y vencedor) para inspeccionar por qué y
+# contra qué se descartó cada chunk. Vacío = sin auditoría.
+DEDUP_AUDIT: bool = os.getenv("DEDUP_AUDIT", "true").lower() == "true"
+DEDUP_AUDIT_RUTA: str = os.getenv("DEDUP_AUDIT_RUTA", "output/dedup_audit.jsonl")
 
 # --- ChromaDB ---
 CHROMA_DIR: str = os.getenv("CHROMA_DIR", "./output/chroma_db")

@@ -243,6 +243,146 @@ class TestDedup:
 
 
 # ---------------------------------------------------------------------------
+# AUDITORÍA DE DESCARTES (eventos + agregados del dedup)
+# ---------------------------------------------------------------------------
+
+
+class TestAuditoriaDescartes:
+    """info['dedup'] volca la auditoría de los pares descartados: eventos con
+    motivo (coseno/clave), similaridad del par, y agregados por fuente."""
+
+    def test_eventos_coseno_incluyen_sim_y_pareja(self) -> None:
+        docs = [
+            Document(page_content="A", metadata={
+                "source": "a.txt", "semantic_score": 0.9, "chunk_index": 0,
+                "row": 3,
+            }),
+            Document(page_content="B clon de A", metadata={
+                "source": "b.txt", "semantic_score": 0.5, "chunk_index": 1,
+            }),
+        ]
+        vecs = [[1.0, 0.0], [0.9999, 0.001]]
+        info: dict = {}
+        deduplicar(list(docs), list(vecs), umbral=0.9, info=info)
+        dd = info["dedup"]
+        assert len(dd["descartes"]) == 1
+        ev = dd["descartes"][0]
+        assert ev["motivo"] == "dedup_coseno"
+        assert ev["fuente"] == "b.txt" and ev["chunk_index"] is not None
+        assert ev["sim"] >= 0.9
+        assert ev["pos"] is None  # chunk no CSV: sin fila
+        assert ev["snip"].startswith("B clon de A")  # snippet de la fuente descartada
+        par = ev["pareja"]
+        assert par["fuente"] == "a.txt"
+        assert par["score"] == 0.9
+        assert par["pos"] == 3  # fila del CSV ganador
+
+    def test_evento_clave_para_politicas_exactas(self) -> None:
+        docs = [
+            Document(page_content="entidad 1", metadata={
+                "source": "a.csv", "dedup_policy": "exact_key",
+                "entity_key": "k1", "row": 2, "semantic_score": 0.9,
+            }),
+            Document(page_content="entidad 1 bis", metadata={
+                "source": "a.csv", "dedup_policy": "exact_key",
+                "entity_key": "k1", "row": 5, "semantic_score": 0.8,
+            }),
+        ]
+        vecs = [[1.0, 0.0], [0.0, 1.0]]
+        info: dict = {}
+        deduplicar(list(docs), list(vecs), umbral=0.9, info=info)
+        ev = info["dedup"]["descartes"][0]
+        assert ev["motivo"] == "dedup_clave"
+        assert ev["policy"] == "exact_key"
+        assert ev["fuente"] == "a.csv"
+        # claves de identidad: la que colisionó (entity_key) + fila del chunk
+        assert ev["claves"]["entity_key"] == "k1"
+        assert ev["claves"]["group_key"] is None
+        assert ev["pos"] == 5
+
+    def test_evento_clave_group_only(self) -> None:
+        """group_only: la clave de identidad es group_key (sin fila)."""
+        docs = [
+            Document(page_content="grupo X", metadata={
+                "source": "a.csv", "dedup_policy": "group_only",
+                "group_key": "barrio|temporada",
+            }),
+            Document(page_content="grupo X repetido", metadata={
+                "source": "a.csv", "dedup_policy": "group_only",
+                "group_key": "barrio|temporada",
+            }),
+        ]
+        vecs = [[1.0, 0.0], [0.0, 1.0]]
+        info: dict = {}
+        deduplicar(list(docs), list(vecs), umbral=0.9, info=info)
+        ev = info["dedup"]["descartes"][0]
+        assert ev["claves"]["group_key"] == "barrio|temporada"
+        assert ev["claves"]["entity_key"] is None
+        assert ev["claves"]["row"] is None
+
+    def test_fuentes_vacias_por_coseno(self) -> None:
+        """Fuente pre -> 0 post: se registra como vacía con el descarte que la vació."""
+        docs = [
+            Document(page_content="A", metadata={"source": "a.txt", "semantic_score": 0.9}),
+            Document(page_content="B clon", metadata={
+                "source": "b.txt", "semantic_score": 0.5,
+            }),
+        ]
+        vecs = [[1.0, 0.0], [0.9999, 0.001]]
+        info: dict = {}
+        deduplicar(list(docs), list(vecs), umbral=0.9, info=info)
+        fv = info["dedup"]["fuentes_vacias"]
+        assert list(fv) == ["b.txt"]
+        assert fv["b.txt"]["sim"] >= 0.9
+        assert fv["b.txt"]["pareja"]["fuente"] == "a.txt"
+
+    def test_fuentes_vacias_por_clave_imposible(self) -> None:
+        """Las claves exactas SIEMPRE conservan el primer chunk: ninguna fuente
+        puede quedar vacía por ese motivo (solo el coseno vacía una fuente)."""
+        docs = [Document(
+            page_content=t,
+            metadata={
+                "source": "a.csv", "dedup_policy": "exact_key",
+                "entity_key": "k1", "semantic_score": 0.9,
+            },
+        ) for t in ("row1", "row1-dup")]
+        vecs = [[1.0, 0.0], [0.0, 1.0]]
+        info: dict = {}
+        deduplicar(list(docs), list(vecs), umbral=0.9, info=info)
+        assert len(info["dedup"]["descartes"]) == 1  # la repetida se descarta
+        assert info["dedup"]["fuentes_vacias"] == {}  # pero la fuente no se vacía
+
+    def test_descartes_por_fuente(self) -> None:
+        docs = [
+            Document(page_content=f"{t}", metadata={
+                "source": "a.csv", "dedup_policy": "exact_key",
+                "entity_key": "k1", "semantic_score": 0.9,
+            })
+            for t in ("row1", "row1-dup", "row1-dup2")
+        ]
+        docs.append(
+            Document(page_content="clon lejano", metadata={
+                "source": "b.txt", "semantic_score": 0.5,
+            })
+        )
+        vecs = [[1.0, 0.0]] * 3 + [[0.0, 1.0]]
+        info: dict = {}
+        deduplicar(list(docs), list(vecs), umbral=0.9, info=info)
+        assert info["dedup"]["descartes_por_fuente"]["a.csv"] == 2
+
+    def test_sin_descartes_eventos_vacios(self) -> None:
+        docs = [Document(page_content=t, metadata={"source": "a.txt"})
+                for t in ("unicus", "distinctus")]
+        vecs = [[1.0, 0.0], [0.0, 1.0]]
+        info: dict = {}
+        deduplicar(list(docs), list(vecs), umbral=0.9, info=info)
+        dd = info["dedup"]
+        assert dd["descartes"] == []
+        assert dd["descartes_por_fuente"] == {}
+        assert dd["fuentes_vacias"] == {}
+
+
+# ---------------------------------------------------------------------------
 # CORRECTUD: FAISS vs. implementación de referencia (matriz completa)
 # ---------------------------------------------------------------------------
 

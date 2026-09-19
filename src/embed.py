@@ -25,6 +25,7 @@ from config import (
     EMBED_BATCH_SIZE,
     EMBED_DIM,
     EMBED_MODEL,
+    EMBED_TIMEOUT,
     EMBED_PROVIDER,
     GOOGLE_API_KEY,
     GOOGLE_EMBED_MODEL,
@@ -40,6 +41,20 @@ _HF_CACHE: dict[str, SentenceTransformer] = {}
 # Firma de los proveedores: (textos, modelo, máximo de dim) -> vectores
 _FN_PROVEEDOR = Callable[[list[str], str | None, int | None], list[list[float]]]
 
+# Cada cuantos lotes se imprime una línea de progreso (1 = cada lote).
+_EMBED_LOG_EVERY = 10
+
+
+def _log_progreso_lote(lote: int, total: int, textos: int, t_lote: float) -> None:
+    """Log por lote con la marca de tiempo/fase de consola:
+    `AAAAMMDD hh:mm:ss [EMBED]   lote i/N (n textos, s s) (Restante: 99m 99s)`.
+    La ETA parte del tiempo del último lote (basta para pantalla)."""
+    eta = max(0.0, t_lote * (total - lote))
+    m, s = divmod(int(eta), 60)
+    print(time.strftime("%Y-%m-%d %H:%M:%S") +
+          f" [EMBED]   lote {lote}/{total} ({textos} textos, {t_lote:.1f} s) "
+          f"(Restante: {m}m {s}s)")
+
 
 def _embed_ollama(textos: list[str], model: str | None = None,
                   dim: int | None = None) -> list[list[float]]:
@@ -47,14 +62,16 @@ def _embed_ollama(textos: list[str], model: str | None = None,
     session = requests.Session()
     url = f"{OLLAMA_BASE_URL}/api/embed"
     vectores: list[list[float]] = []
-    for inicio in range(0, len(textos), EMBED_BATCH_SIZE):
+    n_lotes = (len(textos) + EMBED_BATCH_SIZE - 1) // EMBED_BATCH_SIZE
+    for i, inicio in enumerate(range(0, len(textos), EMBED_BATCH_SIZE), start=1):
         batch = textos[inicio:inicio + EMBED_BATCH_SIZE]
         payload: dict[str, Any] = {"model": model or EMBED_MODEL, "input": batch}
         if dim is not None:
             # Ollama corta al máximo del modelo si dim lo supera y lo ignora
             # en versiones antiguas: el recorte de embeddear() cubre ambos casos.
             payload["dimensions"] = dim
-        resp = session.post(url, json=payload, timeout=120)
+        t_lote = time.time()
+        resp = session.post(url, json=payload, timeout=EMBED_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
         if "embeddings" not in data:
@@ -64,6 +81,8 @@ def _embed_ollama(textos: list[str], model: str | None = None,
                 "EMBED_PROVIDER=huggingface."
             )
         vectores.extend(data["embeddings"])
+        if i % _EMBED_LOG_EVERY == 0 or i == n_lotes:
+            _log_progreso_lote(i, n_lotes, len(batch), time.time() - t_lote)
     return vectores
 
 
@@ -78,9 +97,18 @@ def _embed_huggingface(textos: list[str], model: str | None = None,
         _HF_CACHE[nombre] = SentenceTransformer(nombre, **kwargs)
     # normalize_embeddings=True: vectores unitarios, coherente con la métrica de coseno de Chroma
     # truncate_dim: slice del prefijo (MRL-first para modelos Matryoshka); None si dim >= dim nativa
+    # encode() hace una única llamada (batch internal del backend): se avisa de
+    # la única llamada y se mide el tiempo total real al terminar.
+    t0 = time.time()
+    print(time.strftime("%Y-%m-%d %H:%M:%S") +
+          f" [EMBED]   huggingface: {len(textos)} textos en una única llamada "
+          f"(batch_size={EMBED_BATCH_SIZE})")
     vecs = _HF_CACHE[nombre].encode(textos, batch_size=EMBED_BATCH_SIZE,
                                     normalize_embeddings=True, truncate_dim=dim)
-    return vecs.tolist()
+    out = vecs.tolist()
+    print(time.strftime("%Y-%m-%d %H:%M:%S") +
+          f" [EMBED]   huggingface: {len(out)} vectores en {time.time() - t0:.1f} s")
+    return out
 
 
 def _reintentar_cuota(url: str, headers: dict, body: dict) -> requests.Response:
@@ -122,13 +150,14 @@ def _embed_google(textos: list[str], model: str | None = None,
     headers = {"x-goog-api-key": GOOGLE_API_KEY}
     n_modelo = f"models/{model or GOOGLE_EMBED_MODEL}"
     vectores: list[list[float]] = []
-    for inicio in range(0, len(textos), EMBED_BATCH_SIZE):
-        lote = inicio // EMBED_BATCH_SIZE + 1
+    n_lotes = (len(textos) + EMBED_BATCH_SIZE - 1) // EMBED_BATCH_SIZE
+    for lote, inicio in enumerate(range(0, len(textos), EMBED_BATCH_SIZE), start=1):
         batch = textos[inicio:inicio + EMBED_BATCH_SIZE]
         body = {"requests": [
             {"model": n_modelo, "content": {"parts": [{"text": t}]}}
             for t in batch
         ]}
+        t_lote = time.time()
         resp = _reintentar_cuota(url, headers, body)
         if resp.status_code >= 400:
             raise RuntimeError(
@@ -144,6 +173,8 @@ def _embed_google(textos: list[str], model: str | None = None,
                     f"respuesta parcial: {r!r}"
                 )
             vectores.append(emb)
+        if lote % _EMBED_LOG_EVERY == 0 or lote == n_lotes:
+            _log_progreso_lote(lote, n_lotes, len(batch), time.time() - t_lote)
     return vectores
 
 

@@ -2,6 +2,8 @@
 src/index.py
 Carga los embeddings en ChromaDB (base vectorial local y ligera).
 """
+import time
+
 import chromadb
 from chromadb.config import Settings
 from chromadb.errors import NotFoundError
@@ -89,15 +91,25 @@ def indexar(
     # Chroma limita los `add` por lote, con 130k en una llamada
     # estalla en "greater than max batch size (5410)". Hago un lote con margen.
     metadatos_san = [_sanear(m) for m in metadatos]
-    for inicio in range(0, len(ids), _BATCH_ADD):
-        fin = inicio + _BATCH_ADD
+    n_total = len(ids)
+    t_fase = time.time()
+    for lote, inicio in enumerate(range(0, n_total, _BATCH_ADD), start=1):
+        fin = min(inicio + _BATCH_ADD, n_total)
+        t_lote = time.time()
         collection.add(
             ids=ids[inicio:fin],
             embeddings=embeddings[inicio:fin],
             documents=documents[inicio:fin],
             metadatas=metadatos_san[inicio:fin],
         )
-        print(f"[INDEX] insertado {min(fin, len(ids))}/{len(ids)}")
+        t_transcurrido = time.time() - t_lote
+        restantes = n_total - fin
+        t_vet = (time.time() - t_fase) / fin  # tiempo medio por vector hasta ahora
+        m, s = divmod(int(t_vet * restantes), 60)
+        print(time.strftime("%Y-%m-%d %H:%M:%S") +
+              f" [INDEX] insertado {fin}/{n_total} "
+              f"({fin - inicio} vectores, {t_transcurrido:.1f} s) "
+              f"(Restante: {m}m {s}s)")
 
     # Verificación: todos los ids insertados en base de datos deben estar vivos.
     # `get(ids=...)` expande cada id a un parámetro SQL, lo que hace que
