@@ -12,7 +12,7 @@ La línea base que fija el enunciado es: cargar un corpus (de dos o más formato
 
 **Más allá del mínimo:**
 
-- Los archivos CSV no se alimentan ya del simple supuesto «una fila equivale a un documento plano»: antes de trocear existe una capa de **clasificación diferencial** (los módulos `src/csv_advisor.py` y `src/csv_transform.py`) que decide el tratamiento de cada fuente (documento de entidad, cuando cada fila es una entidad de identificador estable y se deduplica por clave exacta; documento agrupado, cuando se trata de una tabla de hechos repetitiva y se deduplica por grupo; o documento por fila como caso refugio). La metadata (la política de deduplicación, la clave de entidad, la clave de grupo y la pista de troceado) viaja con el chunk hasta el índice, y **la deduplicación de los CSV nunca es semántica** (de modo que no se pierde información de entidades casi idénticas) sino por clave exacta.
+- Los archivos CSV no se alimentan ya del simple supuesto "una fila equivale a un documento plano": antes de trocear existe una capa de **clasificación diferencial** (los módulos `src/csv_advisor.py` y `src/csv_transform.py`) que decide el tratamiento de cada fuente (documento de entidad, cuando cada fila es una entidad de identificador estable y se deduplica por clave exacta; documento agrupado, cuando se trata de una tabla de hechos repetitiva y se deduplica por grupo; o documento por fila como caso refugio). Los metadatos (la política de deduplicación, la clave de entidad, la clave de grupo y la pista de troceado) viaja con el chunk hasta el índice, y **la deduplicación de los CSV nunca es semántica** (de modo que no se pierde información de entidades casi idénticas) sino por clave exacta.
 - La carga soporta **un archivo o una carpeta recursiva** mediante un registro de extensiones (la constante `_LOADERS`): añadir un formato nuevo equivale a añadir una entrada a ese diccionario, sin tocar el resto.
 - El metadato `source` está **siempre poblado**, aunque el cargador no lo haya fijado (la definición por omisión está en `load.py`).
 - El metadato `file_hash` (el resumen SHA-256 del archivo) identifica el origen de forma unívoca: es estable entre indexaciones y detecta contenido nuevo cuando se descarga repetidamente un archivo del mismo nombre.
@@ -33,8 +33,8 @@ Se ha ido más allá de lo que es la cadena básica (carga, limpieza, troceado, 
 
 - **El etiquetado** (`tsd/tag.py`): etiquetado semántico con un modelo de lenguaje usando una taxonomía cerrada (la categoría del documento, los tags y la relevancia). Etiqueta **una vez por fuente** (una única llamada al modelo por documento, no por página) y propaga el resultado a todos sus chunks, lo que lo hace luego barato y consistente.
 - **La puntuación** (`tsd/scoring.py`): la puntuación semántica (`semantic_score`) por chunk, que combina la relevancia asignada por el modelo, la **centralidad** (el coseno contra el centroide), la **redundancia** (el coseno máximo con el resto, mediante FAISS: el consumo de memoria es proporcional al número de filas por su dimensión, en vez de proporcional al cuadrado del número de filas) y la **autoridad** de la fuente; vuelca sus métricas en la referencia de información.
-- **La deduplicación** (`tsd/dedup.py`): la deduplicación **consciente de política**; los chunks con política exacta (por clave de entidad, por grupo o estrictamente por clave) se deduplican por clave y **nunca por coseno**, y los demás pasan por la deduplicación recorte-greedy ordenada por la puntuación semántica con umbral configurable (FAISS incremental).
-- **El informe**: al terminar, la función de orquestación ensambla el diccionario de métricas y genera el informe (ver la sección cuarta); se puede saltar en las pruebas.
+- **La deduplicación** (`tsd/dedup.py`): la deduplicación **consciente de política**; los chunks con política exacta (por clave de entidad, por grupo o estrictamente por clave) se deduplican por clave y **nunca por coseno**, y los demás pasan por la deduplicación por '_recorte-greedy_' (recorte voraz) ordenada por la puntuación semántica con umbral ( `DEDUP_UMBRAL` ) configurable (**FAISS incremental**).
+- **El informe**: al terminar, la función de orquestación del pipeline de ingesta ensambla el diccionario de métricas y genera el informe [sección 4](#4-el-informe-de-indexación-en-markdown-srcinformepy); se puede saltar en las pruebas.
 
 **Más allá del mínimo:** todo el bloque es opcional mediante un conmutador (la constante `TAG_SCORING_DEDUP`), y el pipeline devuelve un diccionario mucho más rico que el mínimo (los tiempos por fase, los resúmenes de cada fase, las métricas de puntuación y deduplicación, la dimensión y la preverificación).
 
@@ -49,14 +49,14 @@ Como extra tras la ingesta, el informe de indexación se genera **automáticamen
 - **El bloque TSD**: la puntuación (el mínimo, la media y el máximo; el porcentaje de chunks con puntuación mayor o igual a 0,6; y las medias de centralidad y redundancia) y la deduplicación (antes y después, el descarte exacto frente al semántico y el porcentaje total).
 - **Las señales y los criterios de decisión**: heurísticas automáticas sobre las métricas (la deduplicación que descarta más del cincuenta por ciento, la deduplicación que no descarta nada, la dimensión desajustada, la preverificación por memoria caché, menos del cincuenta por ciento de chunks buenos, entre otras), cada una con la acción concreta que recomienda (bajar o subir el umbral, tocar la dimensión, revisar los cargadores, entre otras).
 
-El módulo **solo renderiza** (no lee la configuración ni produce efectos secundarios), de modo que su salida se prueba de forma aislada, y la prueba de extremo a extremo corre con un proveedor simulado (sin red ni Ollama). Concretamente:
+El módulo **solo renderiza** datos (no lee la configuración ni produce efectos secundarios), de modo que su salida se prueba de forma aislada, y la prueba de extremo a extremo corre con un proveedor simulado (sin red ni Ollama). Concretamente:
 
 - **«Se prueba de forma aislada»**: el informe es una función pura (su entrada es el diccionario de métricas que devuelve la orquestación y su salida es la cadena en markdown), de modo que las pruebas fabrican ese diccionario a mano y solo verifican el texto generado (las secciones, los valores y las señales presentes); no hay base de datos, archivo de configuración ni red que preparar.
 - **«El extremo a extremo con proveedor simulado»**: la prueba de extremo a extremo del pipeline usa un proveedor de embeddings simulado (devuelve vectores deterministas de dimensión fija, sin llamar a Ollama ni a ninguna API) y escribe el índice en un directorio temporal; así el flujo completo, de la preverificación hasta el informe, se valida sin red ni Ollama instalado.
 
 ## 5. La dimensión garantizada
 
-Aquí cabe suponer erróneamente que la dimensión del modelo y la constante `EMBED_DIM` coinciden. En este proyecto, la dimensión del índice es **siempre** el mínimo entre la dimensión que maneja el modelo y la constante `EMBED_DIM`, con una doble protección:
+Aquí cabe suponer _erróneamente_ que la dimensión del modelo y la constante `EMBED_DIM` coinciden, o a lo sumo la constante es menor a la dimensión que soporta el modelo. En este proyecto, la dimensión del índice es **siempre** el mínimo entre la dimensión que maneja el modelo y la constante `EMBED_DIM`, con una doble protección:
 
 - **Una pista al proveedor en el servidor**: Ollama (el campo `dimensions` en la petición) y HuggingFace (el parámetro `truncate_dim`, mediante recorte tipo Matryoshka); Google la acepta y la ignora de forma explícita.
 - **La garantía real en el cliente** (la función `_corte_dim` en `src/embed.py`): la función de vectorización es la **única puerta** por la que pasan el índice y la consulta futura, y recorta el prefijo y lo renormaliza si el proveedor devuelve más dimensiones de las declaradas. La métrica coseno se mantiene.
@@ -75,13 +75,13 @@ El chequeo de dimensiones se convierte en mensajes por niveles: cuando la dimens
 
 ## 7. Los embeddings multi-proveedor (`src/embed.py`)
 
-Para el apartado «API de LLM y embeddings» se plantean tres proveedores distintos:
+Para el apartado API de LLM y embeddings se plantean tres proveedores distintos:
 
 - **Tres proveedores intercambiables por variable de entorno** (la constante `EMBED_PROVIDER`): Ollama (la ruta por lotes `/api/embed`), HuggingFace (el cargador de sentence-transformers, con carga perezosa y memoria caché) y Google (la ruta por lotes de la API de servicio web). Añadir un proveedor equivale a añadir una función y una línea al diccionario de proveedores.
 - **La coherencia de la métrica**: los embeddings normalizados y la colección con métrica coseno hacen que la similitud sea coseno real en toda la cadena (vectorización, puntuación, deduplicación y recuperación).
-- **El tope máximo de dimensión por proveedor** (la sección quinta) y **la preverificación de disponibilidad** (la sección segunda), con memoria caché offline por medio de las constantes `EMBED_DIM_MAX_OLLAMA`, `EMBED_DIM_MAX_HF` y `EMBED_DIM_MAX_GOOGLE`: la preverificación declara la dimensión máxima que maneja el modelo incluso sin red ni clave API.
+- **El tope máximo de dimensión por proveedor** [sección quinta](#5-la-dimensión-garantizada) y **la preverificación de disponibilidad** [sección segunda](#2-la-preverificación-validación-preventiva-antes-de-empezar), con memoria caché offline por medio de las constantes `EMBED_DIM_MAX_OLLAMA`, `EMBED_DIM_MAX_HF` y `EMBED_DIM_MAX_GOOGLE`: la preverificación declara la dimensión máxima que maneja el modelo incluso sin red ni clave API.
 - **La exportación a JSON** (la función de vectorización y la función de exportación): vuelca el texto, los metadatos y el vector a `output/embeddings.json` para inspección y depuración, lo que ayuda al experimento de troceado del informe.
-- La función de consulta vectorial (la vectorización de una pregunta) ya está lista para la fase online (la condición RAG: el mismo modelo que al indexar) y con la misma garantía de dimensión que el índice.
+- La función de consulta vectorial (la vectorización de una pregunta) ya está lista para la fase online (la condición RAG: el mismo modelo que al indexar) y con la misma garantía de dimensión/ que el índice.
 
 ## 8. Robustez y correcciones aplicadas sobre el código de esta rama
 
@@ -100,7 +100,11 @@ Son correcciones que hacen que el pipeline **funcione de punta a punta** (evitar
 - El divisor recursivo de texto por caracteres con separadores **semánticos** (párrafo, frase, espacio y letra): el divisor «multiusos» recomendado como punto de partida.
 - El módulo de troceado es el **puente entre el etiquetado y el troceado**: hereda la metadata del documento padre (la categoría del documento, los tags, la relevancia asignada por el modelo y, ahora, también la política de deduplicación, la clave de entidad y la clave de grupo de la capa CSV) a cada chunk, de modo que viaja sin coste adicional en tokens hasta el índice. Además **respeta la pista del asesor** (la de no trocear y la de troceado ligero): una fila de entidad de doscientos caracteres no pasa por el mismo proceso de corte que un reglamento de ochenta páginas, como regla lógica plausible.
 - **La validación de coherencia** (`scripts/eval_coherencia_chunks.py`): mide la similitud coseno entre chunks adyacentes frente a la de pares aleatorios, para confirmar que el solapamiento mantiene la coherencia temática (la «Regla del troceado»: el dato ha de recuperarse con valor).
-- Las pruebas offline del troceado (`tests/test_chunks.py`), que cubren el tamaño, el solapamiento, la metadata y la preservación del contenido (los precios y los horarios no se rompen), además de las métricas para el experimento del tamaño y el solapamiento del troceado en el informe.
+- Las pruebas offline del troceado (`tests/test_chunks.py`), que cubren el tamaño, el solapamiento, los metadatos y la preservación del contenido (los precios y los horarios no se rompen), además de las métricas para el experimento del tamaño y el solapamiento del troceado en el informe. 
+
+```bash
+python -m evaluar_rag_corpus.py [-h] --embeddings EMBEDDINGS --chunks CHUNKS [--eval EVAL] [--out OUT] [--dedup-threshold DEDUP_THRESHOLD] [--k K [K ...]] [--sample-pairs SAMPLE_PAIRS]
+```
 
 ## 10. La configuración centralizada (`config.py`)
 
@@ -108,9 +112,4 @@ El conmutador de proveedores, los modelos, la dimensión, el tamaño de lote, el
 
 ## Resumen en una frase
 
-> La fase base (el corpus multi-formato y el pipeline de carga, limpieza, troceado, vectorización e indexación con Chroma) está **completo y funcional**; lo que se supera con esta rama es la **fase de preverificación** (la validación preventiva de la disponibilidad del modelo antes de arrancar, con memoria caché offline), la **dimensión garantizada** (el mínimo entre la dimensión del modelo y la constante declarada), el **tratamiento diferencial de los archivos CSV** (la clasificación y la deduplicación por clave, nunca semántica), el **bloque etiquetado-puntuado-deduplicado** (la entrega de señal limpia al índice), **el informe de indexación con señales para decidir** y la abstracción multi-proveedor con la robustez suficiente para que el índice no pierda datos ni se rompa ante entradas anómalas.
-
-### Pendiente (externo a esta rama, para la siguiente)
-
-- La fase online de recuperación (el filtro por la categoría del documento y la reordenación por la puntuación semántica) y su bandera de consulta en la línea de comandos.
-- La parte de generación y de evaluación, y la interfaz de Streamlit.
+> La fase base (el corpus multi-formato y el pipeline de carga, limpieza, troceado, vectorización e indexación con Chroma) está **completo y funcional**; lo que se supera con esta rama de desarrollo es la **fase de preverificación** (la validación preventiva de la disponibilidad del modelo antes de arrancar, con memoria caché offline como fallback seguro), la **dimensión garantizada** (el mínimo entre la dimensión del modelo y la constante declarada), el **tratamiento diferencial de los archivos CSV** (la clasificación y la deduplicación por clave, nunca semántica), el **bloque etiquetado-puntuado-deduplicado** (la entrega de señal limpia al índice), **el informe de indexación con señales para decidir** y la abstracción multi-proveedor con la robustez suficiente para que el índice no pierda datos ni se rompa ante entradas anómalas.   
