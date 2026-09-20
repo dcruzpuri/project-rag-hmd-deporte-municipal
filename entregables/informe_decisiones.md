@@ -30,7 +30,31 @@ Total: 7756 documentos cargados, 16214 chunks generados.
 
 ## 3. Experimento con diferentes configuraciones
 
-TODO: completar entre los tres tras ejecutar las preguntas de evaluación con distintos TOP_K.
+### 3.1. Configuración base del índice
+
+| Parámetro | Valor | Motivo |
+|---|---|---|
+| `EMBED_PROVIDER` | huggingface | Modelo local, sin coste de API, sin límite de cuota |
+| `HF_EMBED_MODEL` | Qwen/Qwen3-Embedding-4B | 2560 dims, buen rendimiento en español; acordado con el equipo |
+| `EMBED_DIM` | 2560 | Dim real del modelo, sin recorte |
+| `CHUNK_SIZE` | 1000 | Equilibrio entre precisión y contexto |
+| `CHUNK_OVERLAP` | 100 | 10 % del chunk_size, evita cortar ideas |
+| `TAG_SCORING_DEDUP` | false | Desactivado para acelerar pruebas; ver sección 7 |
+| `DEDUP_UMBRAL` | 0.93 | Valor por defecto del equipo |
+
+- **Chunks indexados**: 16214
+- **Dim del índice**: 2560
+- **Tiempo de indexación**: ~15 min (RTX 4070 Ti SUPER, `TAG_SCORING_DEDUP=false`)
+
+### 3.2. Por qué no se ha hecho un barrido de CHUNK_SIZE / CHUNK_OVERLAP
+
+El offline (ingesta + chunking + embeddings + indexación) lo controla la parte de Héctor. Reindexar con distintos valores de `CHUNK_SIZE` implicaría volver a generar el índice completo (~15 min cada vez) y regenerar `output/embeddings.json`, lo que añade ~1 GB de disco por ejecución.
+
+**Decisión del equipo**: mantener fijo el chunking en `1000/100` para las pruebas de retrieval, y centrar el experimento en `TOP_K` (sección 4), que es lo que sí cambia el comportamiento del retrieval sin necesidad de reindexar.
+
+### 3.3. Observación sobre el corpus
+
+El corpus tiene un desbalance claro: el CSV de descuentos (`300097-0-deportes-descuentos.csv`) aporta miles de chunks del tipo *"resumen del dataset…"* con estructura muy repetitiva. Esto provoca que el espacio vectorial tenga una densidad alta en esa zona y que ciertas preguntas devuelvan chunks de ese CSV con distancias medias (~0.46) aunque no respondan a la pregunta. Es un límite del corpus, no del retrieval.
 
 ---
 
