@@ -366,43 +366,6 @@ pip install torch --index-url https://download.pytorch.org/whl/cu121
 Sin torch con CUDA, la indexación cae a CPU y su tiempo se multiplica por cinco o diez.
 
 Nota sobre el modelo de generación: el modelo gemini-2.0-flash fue retirado por Google; la constante GOOGLE_GEN_MODEL se ha actualizado a gemini-3.6-flash.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ## Corpus y fuentes
 
 Corpus de la sede de **datos abiertos del Ayuntamiento de Madrid** (descargado en septiembre de 2026). Datos públicos y de uso educativo:
