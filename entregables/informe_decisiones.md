@@ -60,11 +60,31 @@ El corpus tiene un desbalance claro: el CSV de descuentos (`300097-0-deportes-de
 
 ## 4. Comparación de TOP_K
 
-| TOP_K | Observaciones |
-|---|---|
-| 1 | TODO |
-| 3 | TODO |
-| 5 | TODO |
+Se ha probado la misma pregunta con tres valores de K sobre el índice actual (16214 chunks, 2560 dims).
+
+**Pregunta de referencia:** *"¿Qué piscinas municipales hay en Madrid?"*
+
+| TOP_K | Chunk #1 (fuente / distancia) | ¿Aparece PiscinasAireLibre2026.pdf? | Respuesta final | Observaciones |
+|---|---|---|---|---|
+| 1 | PiscinasAireLibre2026.pdf / 0.4310 | Sí (chunk #1) | Correcta, pero parcial | Solo hay un fragmento; Gemini responde con menos detalle |
+| 3 | PiscinasAireLibre2026.pdf / 0.4310 | Sí (chunks #1 y #2) | Buena | Equilibrio entre precisión y cobertura; se evita ruido |
+| 5 | PiscinasAireLibre2026.pdf / 0.4310 | Sí (chunks #1 y #2) | Completa | Aparecen fuentes adicionales (`reglamento_instalaciones.pdf`, `200186-0-polideportivos.csv`) que enriquecen la respuesta |
+
+### 4.1. Conclusiones
+
+- **K=1**: suficiente para preguntas muy específicas cuya respuesta está en un solo fragmento. Riesgo: se pierde información complementaria (por ejemplo, distrito o dirección).
+- **K=3**: **punto dulce**. Devuelve toda la información relevante sin introducir ruido perceptible.
+- **K=5**: útil cuando la pregunta requiere cruzar varios documentos (por ejemplo, precio + ubicación + horario). Con corpus desbalanceados puede introducir algún chunk del CSV de descuentos, pero el prompt restrictivo evita que Gemini se apoye en él si no responde a la pregunta.
+
+### 4.2. Valor por defecto elegido
+
+`TOP_K=5` como valor por defecto en `config.py` porque:
+
+- El corpus es heterogéneo (PDF + CSV + TXT) y las respuestas suelen estar repartidas.
+- El coste en tokens de Gemini es marginal para +2 chunks.
+- El prompt con grounding filtra bien el ruido: si un chunk no aporta, Gemini simplemente lo ignora.
+
+Se puede sobrescribir en cada consulta con `--top-k N` en la CLI o `top_k=N` en `responder()`, para pruebas específicas.
 
 ---
 
@@ -74,17 +94,77 @@ El corpus tiene un desbalance claro: el CSV de descuentos (`300097-0-deportes-de
 
 **Respuesta:** El sistema recuperó correctamente 18 piscinas con sus fuentes documentadas.
 
-**Distancias de retrieval:** 0.43 – 0.53
+Loading weights: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 398/398 [00:05<00:00, 71.01it/s]
+2026-09-20 19:13:14 [EMBED]   huggingface: 1 textos en una única llamada (batch_size=32)
+2026-09-20 19:13:14 [EMBED]   huggingface: 1 vectores en 0.7 s
+Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+[RAG] [WARN] Error transitorio de Gemini (1/3): reintentando en 2s
+2026-09-20 19:13:30 [RAG] [INFO] {"pregunta": "¿Qué piscinas municipales hay en Madrid?", "top_k": 5, "n_chunks": 5, "modelo": "google:gemini-3.6-flash", "abstained": false, "t_retrieval": 14.9789, "t_generation": 15.0089}
+
+=== Respuesta ===
+Según la información del documento `PiscinasAireLibre2026.pdf` (y también referenciada en `200186-0-polideportivos.csv`), las piscinas municipales al aire libre son:
+
+* **Peñuelas** (Distrito Arganzuela)
+* **Mistral** / **Centro Deportivo Municipal Mistral** (Distrito Barajas)
+* **Blanca Fernández Ochoa** (Distrito Carabanchel)
+* **Concepción** (Distrito Ciudad Lineal)
+* **Santa Ana** (Distrito Fuencarral - El Pardo)
+* **Vicente del Bosque** (Distrito Fuencarral - El Pardo)
+* **Luis Aragonés** (Distrito Hortaleza)
+* **Hortaleza** (Distrito Hortaleza)
+* **Aluche** (Distrito Latina)
+* **Casa de Campo** (Distrito Moncloa - Aravaca)
+* **San Blas** (Distrito San Blas - Canillejas)
+* **Paseo de la Dirección** (Distrito Tetuán)
+* **Moscardó** (Distrito Usera)
+* **Orcasitas** (Distrito Usera)
+* **San Fermín** (Distrito Usera)
+* **Margot Moles** (Distrito Vicálvaro)
+* **Cerro Almodóvar** (Distrito Villa de Vallecas)
+* **Plata y Castañar** (Distrito Villaverde)
+
+=== Fuentes ===
+  - PiscinasAireLibre2026.pdf
+  - reglamento_instalaciones.pdf
+  - 200186-0-polideportivos.csv
+  - 200215-0-instalaciones-deportivas.csv
+
+=== Métricas ===
+  retrieval: 14.9789
+  generation: 15.0089
+  top_k: 5
+  n_chunks: 5
+  model: gemini-3.6-flash
 
 ---
 
 ## 6. Abstención out-of-corpus
 
-**Pregunta:** ¿A qué hora juega el Madrid hoy?
+### 6.1. Caso 1: pregunta claramente fuera de dominio
 
-**Respuesta del sistema:** "No dispongo de esa información en los documentos proporcionados."
+**Pregunta:**
 
-**Motivo:** La pregunta no tiene relación con el corpus de Deporte Municipal Madrid.
+> ¿Cuál es la capital de Francia?
+
+**Comando ejecutado:**
+
+Loading weights: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 398/398 [00:03<00:00, 100.00it/s]
+2026-09-20 19:16:20 [EMBED]   huggingface: 1 textos en una única llamada (batch_size=32)
+2026-09-20 19:16:20 [EMBED]   huggingface: 1 vectores en 0.5 s
+2026-09-20 19:16:21 [RAG] [INFO] Sin evidencia suficiente para: '¿Cuál es la capital de Francia?' (top-k=5, chunks=5)
+
+=== Respuesta ===
+No dispongo de esa información en los documentos proporcionados.
+
+=== Fuentes ===
+  - 300097-0-deportes-descuentos.csv
+
+[INFO] El sistema se abstuvo: no hay evidencia suficiente en el corpus.
+
+=== Métricas ===
+  retrieval: 11.703
+  top_k: 5
+  n_chunks: 0
 
 ---
 

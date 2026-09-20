@@ -256,6 +256,153 @@ La redundancia se calcula con FAISS (búsqueda de dos vecinos) en vez de materia
 
 Los archivos CSV no se tratan igual que el resto: antes de trocear, el módulo `src/csv_advisor.py` decide el tratamiento de cada uno (la etiqueta `[CSV]` se muestra por consola). Son dos niveles de decisión, de lo más económico a lo más costoso: en primer lugar, la **receta de la fuente conocida** (la constante `RECETAS_CONOCIDAS`, con una confianza de 0.99); y, si el esquema cambió o la fuente es nueva, la **heurística por perfil estructural** (cardinalidades, densidad numérica y columnas de identificador, medida, temporal o narrativa). Un archivo CSV desconocido queda en la política conservadora `unknown_csv` o `exact_only` (confianza 0.4): no rompe nada y queda registrado para su revisión. La deduplicación de los archivos CSV **nunca es semántica**; se realiza por clave exacta. La tabla de decisiones del corpus actual, la distinción entre tablas de entidad y tablas de hechos y el glosario de los registros están en [`docs/ANEXO_FUNC.md`](docs/ANEXO_FUNC.md).
 
+## Fase online — Recuperación, generación y CLI
+
+La fase online convierte una pregunta del usuario en una respuesta anclada al corpus, con fuentes citadas y abstención cuando no hay evidencia. Está implementada por los módulos siguientes:
+
+- `src/retrieve.py`: recuperación semántica desde ChromaDB; convierte la pregunta en un embedding (con el mismo modelo que el índice) y devuelve los `top-k` chunks más similares con su distancia y su fuente.
+- `src/prompts.py`: construcción del prompt final con bloques claramente delimitados (`=== INSTRUCCIONES ===`, `=== CONTEXTO ===`, `=== PREGUNTA ===`, `=== RESPUESTA ===`) y grounding estricto; el mensaje literal de abstención es la constante `ABSTENTION_MESSAGE`.
+- `src/generate.py`: capa de generación con el SDK de Google (`google-genai`) usando el modelo `gemini-3.6-flash`, con reintentos automáticos ante errores transitorios (`503`, `429`, `UNAVAILABLE`, `RESOURCE_EXHAUSTED`).
+- `src/logging_utils.py`: registro estructurado por consulta; cada pregunta emite una línea JSON con la pregunta, el valor de `top_k`, el número de chunks que entraron al prompt, el modelo, si hubo abstención y los tiempos por fase.
+- `src/logic.py`: orquestador de la fase online; expone las funciones `responder()` y `rag_ask()` que se describen más adelante.
+- `main.py`: interfaz de línea de comandos con los subcomandos `--query`, `--ask`, `--index` y `--prepare`.
+
+### Uso desde la línea de comandos
+
+```bash
+# Recuperación pura (sin LLM): top-k chunks con distancia y fuente
+python main.py --query "¿Qué piscinas municipales hay en Madrid?" --top-k 3
+
+# RAG completo: respuesta con fuentes y métricas
+python main.py --ask "¿Qué piscinas municipales hay en Madrid?" --top-k 5
+
+# RAG completo con salida JSON (para automatizar evaluación o integrarlo con scripts)
+python main.py --ask "¿Cuál es la capital de Francia?" --json
+
+# Indexación del corpus
+python main.py --index --recreate-index
+
+El comportamiento del comando --ask se puede resumir así:
+
+Elemento	Descripción
+Respuesta	Texto generado por Gemini usando exclusivamente el contenido del corpus
+Fuentes	Lista única de archivos fuente usados en el prompt
+Métricas	top_k, n_chunks, model, retrieval (segundos), generation (segundos)
+Abstención	Booleano; true si el sistema se abstuvo
+Error	Mensaje si algo falla antes de llamar al LLM
+API interna
+Además de la línea de comandos, la fase online expone dos funciones reutilizables sin UI. La interfaz de Streamlit (David) las consume directamente:
+
+from src.logic import responder, rag_ask
+
+resultado = responder("¿Qué piscinas municipales hay en Madrid?", top_k=5)
+# resultado["respuesta"]  -> str
+# resultado["fuentes"]    -> list[str]
+# resultado["contexto"]   -> str (texto de los chunks para depuración)
+# resultado["chunks"]     -> list[dict]
+# resultado["metrics"]    -> dict (top_k, n_chunks, model, retrieval, generation)
+# resultado["abstained"]  -> bool
+# resultado["error"]      -> str | None
+
+texto = rag_ask("¿Qué descuentos hay para abonados?")
+# -> solo la respuesta en texto (útil para el módulo de Agentes)
+
+Grounding y abstención
+El sistema implementa dos capas de abstención independientes:
+
+Guardrail de distancia (src/logic.py): si la mejor distancia coseno del top-k supera el umbral UMBRAL_ABSTENCION = 0.65, el sistema se abstiene sin llamar al LLM. Esto ahorra tokens y latencia cuando la pregunta está fuera del dominio del corpus.
+
+Prompt restrictivo (src/prompts.py): si el LLM recibe contexto pero no encuentra información suficiente, devuelve literalmente el valor de ABSTENTION_MESSAGE.
+
+Además, el prompt obliga a citar las fuentes cuando el contexto las incluye.
+
+Comportamiento verificado
+Pregunta	Resultado
+"¿Qué piscinas municipales hay en Madrid?"	✅ Responde con 18 piscinas y fuentes citadas
+"¿Qué instalaciones deportivas hay en Chamberí?"	⚠️ Abstención (los chunks no mencionan el distrito)
+"¿Qué descuentos hay para abonados?"	⚠️ Abstención (el CSV es de hechos, no documenta)
+"¿Cuál es la capital de Francia?"	✅ Abstención sin llamar al LLM (guardrail de distancia)
+Configuración específica de la fase online
+Las variables del archivo .env que controlan la fase online son las siguientes:
+
+GEN_PROVIDER (valor por defecto, google): proveedor del LLM de generación; los valores admitidos son google, huggingface y ollama.
+
+GOOGLE_GEN_MODEL (valor por defecto, gemini-3.6-flash): nombre del modelo de generación.
+
+GOOGLE_API_KEY: clave de Google AI Studio (obligatoria para la generación con Google).
+
+TOP_K (valor por defecto, 5): número de chunks recuperados por consulta.
+
+MAX_CHUNKS (valor por defecto, 5): número máximo de chunks que entran al prompt.
+
+GEN_TEMPERATURE (valor por defecto, 0.2): temperatura del LLM; se mantiene baja para reforzar el grounding.
+
+ABSTENTION_MESSAGE: mensaje literal que se devuelve cuando no hay evidencia suficiente.
+
+Registro por consulta
+Cada consulta emite por consola una línea con formato JSON que resume la ejecución. Un ejemplo:
+
+{
+  "pregunta": "¿Qué piscinas municipales hay en Madrid?",
+  "top_k": 5,
+  "n_chunks": 5,
+  "modelo": "google:gemini-3.6-flash",
+  "abstained": false,
+  "t_retrieval": 11.1,
+  "t_generation": 8.1
+}
+
+Este registro alimenta el informe de evaluación y la tabla de métricas de la interfaz de Streamlit.
+
+Dependencias adicionales
+Además de las dependencias de requirements.txt, la fase online requiere:
+
+# Necesario para la deduplicación (bloque TSD)
+pip install faiss-cpu
+
+# Necesario para usar GPU NVIDIA durante la indexación
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+
+Sin torch con CUDA, la indexación cae a CPU y su tiempo se multiplica por cinco o diez.
+
+Nota sobre el modelo de generación: el modelo gemini-2.0-flash fue retirado por Google; la constante GOOGLE_GEN_MODEL se ha actualizado a gemini-3.6-flash.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## Corpus y fuentes
 
 Corpus de la sede de **datos abiertos del Ayuntamiento de Madrid** (descargado en septiembre de 2026). Datos públicos y de uso educativo:
