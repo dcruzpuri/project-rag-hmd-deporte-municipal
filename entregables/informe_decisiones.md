@@ -18,13 +18,36 @@ Total: 7756 documentos cargados, 16214 chunks generados.
 
 ## 2. Decisiones de chunking
 
+Valores aplicados por `src/chunk.py`:
+
 - `CHUNK_SIZE`: 1000
 - `CHUNK_OVERLAP`: 100
 - Chunks resultantes: 16214
 - Tamaño medio: 660 tokens
 - Rango: 27 – 3397 tokens
 
-@Héctor — explicar decisiones de chunking y estrategia por tipo de documento.
+### 2.1. Estrategia de troceado
+
+- **Splitter**: `RecursiveCharacterTextSplitter`, el "Level 2 – Recursive Character" del tutorial [*Five levels of text splitting*](https://github.com/FullStackRetrieval-com/RetrievalTutorials/blob/main/tutorials/LevelsOfTextSplitting/5_Levels_Of_Text_Splitting.ipynb): se corta primero en límites semánticos y solo después en espacios/caracteres.
+- **Orden de separadores**: párrafo (`\n\n`) → salto de línea (`\n`) → frase (`. `) → espacio → carácter. Un corte cae en el límite más fino posible, nunca en medio de un párrafo si cabe.
+- **1000/100**: límite elegido entre coste de embedding (fragmentos demasiado largos diluyen el vector en un modelo de 4B) y contexto útil (fragmentos cortos pierden el "cómo/por qué" que rodea al dato). El overlap de 10 % hace que la zona de corte exista en los dos chunks adyacentes: una respuesta partida a mitad de frase sigue siendo recuperable y legible.
+- **Metadata heredada**: cada chunk copia la metadata del documento padre (`source`, `file_hash`, `csv_kind`, `dedup_policy`, `entity_key`/`group_key`, tags del TAG) y añade su propio `chunk_index` y `chunk_size`. Es el puente que permite deduplicar por clave exacta y auditar en ChromaDB.
+- El valor máximo (3397) corresponde a entidades `no_chunk` íntegras: un `max > CHUNK_SIZE` esperado, no un fallo del splitter.
+
+### 2.2. Estrategia por tipo de documento
+
+El chunking no es uniforme: `src/csv_advisor.py` decide el tratamiento **antes** de trocear (receta de fuente conocida `RECETAS_CONOCIDAS` → heurística de perfil estructural → fallback conservador) y deposita un `chunking_hint` que consume `src/chunk.py`:
+
+| Tipo de documento | Origen | `chunking_hint` | Qué se trocea | Por qué |
+|---|---|---|---|---|
+| PDF / TXT / MD | páginas `PyPDFLoader` / archivos de texto | `normal_chunk` (default) | Splitter recursivo 1000/100 | Texto de longitud variable (reglamentos, infografías); el fragmento debe caber en la ventana de embedding del modelo |
+| Fila de entidad | CSV con ID estable: 200186 (polideportivos), 200215 (instalaciones), 210227 (piscinas), 300390 (áreas), 212504 (agenda) | `no_chunk` | No se trocea: 1 fila = 1 chunk | Una fila es una entidad indivisible (nombre + distrito + dirección…). Trocear separaría el ID de sus atributos y rompería la dedup `exact_key` que necesita ese ID |
+| Grupo de hechos | CSV sin ID, con medidas numéricas: 300085 (abonos), 300097 (descuentos) | `light_chunk` | Sin trocear si el grupo ≤ 1000; recursivo si lo supera | El advisor agrupa las filas por dimensiones (mes × centro × tipo) en un documento por grupo con desglose. Miles de casi-duplicados genéricos saturarían el espacio vectorial indexando un "resumen + desglose" por vez |
+| Tabla textual / CSV desconocido | Cualquier otro CSV | `normal_chunk` | Fila por documento troceado | Fallback conservador: la fila viaja sin troceado si es atómica |
+
+### 2.3. Validación
+
+- **Semántica** (`scripts/eval_coherencia_chunks.py`): sobre un texto de dominio, compara la similitud coseno media de pares adyacentes con pares aleatorios; margen > 0.05 → el overlap mantiene coherencia temática; margen prácticamente 0 (muy cercano) → cortes arbitrarios.
 
 ---
 
