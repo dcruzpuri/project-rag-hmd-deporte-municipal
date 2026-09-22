@@ -226,7 +226,6 @@ __marimo__/
 .gitignore
 output/
 chroma/
-tests/
 ENUNCIADO.md
 GUIA.html
 .playwright-mcp
@@ -234,5 +233,8 @@ GUIA.html
 .DS_Store
 .vscode/
 .pytest_tmp/
+tests/
+test_*.py
+
 
 

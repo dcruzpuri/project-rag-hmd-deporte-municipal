@@ -224,7 +224,8 @@ El archivo pierde entorno a los 1.400 chunks por deduplicación agresiva al toma
 | 20250912_Infograf%C3%ADaC%C3%B3moAdquirirOrenovarUnADM.pdf | 3 | 3 | 3 |
 | **211549-0-juegos-deportivos-actual.txt** | 1 | 1892 | 476 |
 
-- **Investigación:** El sistema de ingesta toma el archivo, que es de naturaleza tabular, como un único documento del que genera casi 1.900 chunks erróneamente. Se modifica la ingesta para que sea detectado en la carga de documentos (`load.py`) como archivo tabular, haciéndolo pasar por el mismo pipeline reaprovechado de los archivos CSV (ahora también trata TSV), lo que obtiene un grado mucho más acorde de chunking, a tenor de las líneas que contiene a modo de registro (1 fila = 1 documento), evitando caer por tanto en la deduplicación semántica:
+- **Investigación:** El sistema de ingesta toma el archivo, que es de naturaleza tabular, como un único documento del que genera casi 1.900 chunks erróneamente. Se modifica la ingesta para que sea detectado en la carga de documentos (`load.py`) como archivo tabular, haciéndolo pasar por el mismo pipeline reaprovechado de los archivos CSV (ahora también trata TSV), lo que obtiene un grado mucho más acorde de chunking, a tenor de las líneas que contiene a modo de registro (1 fila = 1 documento), evitando caer por tanto en la deduplicación semántica:  
+
 | fuente | docs | chunks pre | chunks post (dedup) |
 |---|---|---|---|
 | 200215-0-instalaciones-deportivas.csv | 607 | 607 | 607 |
