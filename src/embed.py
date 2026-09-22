@@ -47,12 +47,12 @@ _EMBED_LOG_EVERY = 10
 
 def _log_progreso_lote(lote: int, total: int, textos: int, t_lote: float) -> None:
     """Log por lote con la marca de tiempo/fase de consola:
-    `AAAAMMDD hh:mm:ss [EMBED]   lote i/N (n textos, s s) (Restante: 99m 99s)`.
+    `AAAAMMDD hh:mm:ss [EMBED]   lote i/N (n embeddings, s s) (Restante: 99m 99s)`.
     La ETA parte del tiempo del último lote (basta para pantalla)."""
     eta = max(0.0, t_lote * (total - lote))
     m, s = divmod(int(eta), 60)
     print(time.strftime("%Y-%m-%d %H:%M:%S") +
-          f" [EMBED]   lote {lote}/{total} ({textos} textos, {t_lote:.1f} s) "
+          f" [EMBED]   lote {lote}/{total} ({textos} embeddings, {t_lote:.1f}seg/lote) "
           f"(Restante: {m}m {s}s)")
 
 
@@ -68,7 +68,6 @@ def _embed_ollama(textos: list[str], model: str | None = None,
         payload: dict[str, Any] = {"model": model or EMBED_MODEL, "input": batch}
         if dim is not None:
             # Ollama corta al máximo del modelo si dim lo supera y lo ignora
-            # en versiones antiguas: el recorte de embeddear() cubre ambos casos.
             payload["dimensions"] = dim
         t_lote = time.time()
         resp = session.post(url, json=payload, timeout=EMBED_TIMEOUT)
@@ -101,7 +100,7 @@ def _embed_huggingface(textos: list[str], model: str | None = None,
     # la única llamada y se mide el tiempo total real al terminar.
     t0 = time.time()
     print(time.strftime("%Y-%m-%d %H:%M:%S") +
-          f" [EMBED]   huggingface: {len(textos)} textos en una única llamada "
+          f" [EMBED]   huggingface: {len(textos)} embeddings en una única llamada "
           f"(batch_size={EMBED_BATCH_SIZE})")
     vecs = _HF_CACHE[nombre].encode(textos, batch_size=EMBED_BATCH_SIZE,
                                     normalize_embeddings=True, truncate_dim=dim)
@@ -162,7 +161,7 @@ def _embed_google(textos: list[str], model: str | None = None,
         if resp.status_code >= 400:
             raise RuntimeError(
                 f"Google API {resp.status_code} en lote {lote} "
-                f"({len(batch)} textos): {resp.text[:500]}"
+                f"({len(batch)} embeddings): {resp.text[:500]}"
             )
         # La API devuelve "values" (o "value" en algunas versiones) por embedding
         for r in resp.json()["embeddings"]:
@@ -196,9 +195,9 @@ def _normalizar(vectores: list[list[float]]) -> list[list[float]]:
 def _corte_dim(vectores: list[list[float]], dim_cap: int | None) -> list[list[float]]:
     """Tamaño máximo de los vectores: nunca supera `dim_cap`.
 
-    Corta el prefijo (las primeras `dim_cap` coordenadas) y renormaliza,
+    Corta el prefijo (las primeras `dim_cap` coordenadas) y normaliza,
     coherente con la métrica coseno de Chroma. Es no-op si `dim_cap` es
-    `None` o los vectores ya caben.
+    `None` o los vectores entran por dimensionalidad.
     """
     if dim_cap is None or not vectores or len(vectores[0]) <= dim_cap:
         return vectores
@@ -207,10 +206,10 @@ def _corte_dim(vectores: list[list[float]], dim_cap: int | None) -> list[list[fl
 
 def embeddear(textos: list[str], model: str | None = None,
               dim: int | None = None) -> list[list[float]]:
-    """Convierte una lista de textos en vectores usando el proveedor de 'EMBED_PROVIDER'.
+    """Convierte una lista de embeddings en vectores usando el proveedor de 'EMBED_PROVIDER'.
 
     Args:
-        textos: textos a embadizar.
+        textos: embeddings a vectorizar.
         model: modelo concreto (por defecto, el de .env para el proveedor activo).
         dim: tope de dimensión; por defecto 'EMBED_DIM' de .env.
 

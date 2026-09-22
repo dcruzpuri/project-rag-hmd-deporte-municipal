@@ -1,8 +1,14 @@
 """
 src/load.py
 Abstrae el formato: PDF, TXT, MD, CSV -> lista de LangChain Documents.
-El CSV no se convierte aquí: ``csv_transform.py`` aplica el consejo del
-advisor de ``csv_advisor.py`` (entidad, grupo o fila por documento).
+
+Los CSV se delegan a ``csv_transform.py`` / ``csv_advisor.py`` (entidad,
+grupo o fila por documento según el perfil). Los TXT y MD se comprueban
+si son tabulares (CSV/TSV disfrazados de texto plano): si lo son, una
+fila = un documento (``row_as_doc`` forzado, sin pasar por el advisor),
+porque un TSV con primer campo repetido (p. ej. ``Codigo_temporada``) el
+advisor lo clasificaría ``entity_doc`` y la dedup ``exact_key`` colapsaría
+todas las filas en un único documento.
 """
 
 import hashlib
@@ -13,7 +19,8 @@ from collections.abc import Callable
 from langchain_core.documents import Document
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 
-from .csv_transform import transform_csv
+from .csv_advisor import CsvAdvice, leer_filas_csv
+from .csv_transform import filas_a_documentos, transform_csv
 
 
 _LOTES_HASH = 1 << 20  # 1 MiB por lectura en el hash
@@ -78,6 +85,55 @@ def _detectar_encoding(path: str) -> str:
     # Unreachable: latin-1 decodifica cualquier byte.
     return "latin-1"
 
+# Heurística de tabulares: mínimos de filas y columnas para considerar
+# tabular un .txt/.md. Exige nº de columnas estable
+# y > 1 tabular en los primeros 5 bloques.
+_TAB_MIN_ROWAS = 50
+_TAB_MIN_COLS = 2
+
+
+def _es_tabular(path: str) -> bool:
+    """¿Es el .txt/.md realmente tabular (CSV/TSV con cabecera + muchas filas)?
+
+    Reutiliza ``leer_filas_csv`` (encoding + delimitador + DictReader, el mismo
+    pipeline de los CSV) — no un segundo lector — y solo muestrea las primeras
+    ``_TAB_MIN_ROWAS`` filas: es suficiente para decidir y no se paga un read
+    completo del fichero solo para la detección.
+    """
+    try:
+        columnas, filas = leer_filas_csv(path, sample_size=_TAB_MIN_ROWAS)
+    except Exception as exc:  # noqa: BLE001 — cualquier fallo → no tabular
+        print(
+            f"[LOAD] {os.path.basename(path)}: no tabular "
+            f"({exc.__class__.__name__}): {exc}"
+        )
+        return False
+    return len(columnas) >= _TAB_MIN_COLS and len(filas) >= _TAB_MIN_ROWAS
+
+
+def _load_txt(path: str) -> list[Document]:
+    """TXT/MD: si es tabular, una fila = un doc (row_as_doc forzado,
+
+    sin pasar por csv_advisor); si no, texto plano (un doc. por archivo).
+
+    El advisor de CSV NO se usa aquí a propósito: un TSV con un campo
+    repetido (p. ej. ``Codigo_temporada``) se clasificaría ``entity_doc``
+    + ``exact_key`` y la dedup por clave colapsaría todas las filas en 1.
+    """
+    if _es_tabular(path):
+        columnas, filas = leer_filas_csv(path)
+        source = os.path.basename(path)
+        advice = CsvAdvice(
+            source=source,
+            csv_kind="tabular_txt",
+            treatment="row_as_doc",
+            dedup_policy="exact_only",
+            confidence=1.0,
+            reason="tabular .txt/.md: row_as_doc forzado (sin advisor)",
+        )
+        docs = filas_a_documentos(source, filas, columnas, advice)
+        return _normalizar_source(docs, path)
+    return _load_text(path)
 
 def _load_text(path: str) -> list[Document]:
     loader = TextLoader(path, encoding=_detectar_encoding(path))
@@ -92,12 +148,13 @@ def _load_csv(path: str) -> list[Document]:
     """
     return _normalizar_source(transform_csv(path), path)
 
-# Registro extensión: - loader
+# Registro extensión -> loader. .txt/.md comparten el loader tabular-aware:
+# si el fichero es realmente tabular (TSV/CSV disfrazado), 1 fila = 1 doc.
 Loader = Callable[[str], list[Document]]
 _LOADERS: dict[str, Loader] = {
     ".pdf": _load_pdf,
-    ".txt": _load_text,
-    ".md":  _load_text,
+    ".txt": _load_txt,
+    ".md":  _load_txt,
     ".csv": _load_csv,
 }
 
@@ -134,9 +191,13 @@ def cargar_archivos(rutas: list[str] | str) -> list[Document]:
         ext = Path(archivo).suffix.lower()
         loader_fn = _LOADERS[ext]
         docs = loader_fn(archivo)
-        # Asegurar metadata.source y metadata.file_hash si el loader no los puso
+        # Asegurar metadata.source y metadata.file_hash si el loader no los puso.
+        # doc_id = ordinal del documento dentro del archivo: una fuente produce
+        # muchos documentos (páginas/filas) y la auditoría de dedup los hace
+        # inequívocos con source + doc_id + chunk_index + posición global.
         file_hash = _hash_file(archivo)
-        for d in docs:
+        for i, d in enumerate(docs):
+            d.metadata["doc_id"] = i
             d.metadata.setdefault("source", os.path.basename(archivo))
             d.metadata.setdefault("file_hash", file_hash)
         documentos.extend(docs)

@@ -52,21 +52,31 @@ def _filas(ruta: str, fuente: str | None, motivo: str | None,
     return filas[:top] if top else filas
 
 
+def _ident(ev: dict) -> str:
+    """Identificador inequívoco del evento: ``fuente · doc N · chunk N · #G``.
+    Degradado para eventos antiguos sin ``doc_id``/``global_id`` (solo
+    ``fuente · chunk N``) para poder leer auditorías previas."""
+    if ev.get("doc_id") is None and ev.get("global_id") is None:
+        return f"`{ev['fuente']}` · chunk {ev.get('chunk_index')}"
+    return (f"`{ev['fuente']}` · doc {ev.get('doc_id')} · "
+            f"chunk {ev.get('chunk_index')} · #{ev.get('global_id')}")
+
+
 def _mostrar(filas: list[tuple[float, dict]]) -> None:
     for sim, ev in filas:
         if ev["motivo"] == "dedup_coseno":
             par = ev["pareja"]
             sim_txt = f"{sim:.4f}"
-            print(f"{sim_txt}  `{ev['fuente']}` · chunk {ev.get('chunk_index')} (fila {ev.get('pos')})")
+            print(f"{sim_txt}  {_ident(ev)} (fila {ev.get('pos')})")
             print(f"    descartado: \"{ev['snip']}\"")
-            print(f"         vira a: `{par['fuente']}` · chunk {par.get('chunk_index')} "
+            print(f"         vira a: {_ident(par)} "
                   f"(fila {par.get('pos')}) · score {par['score']}")
             print(f"              \"{par['snip']}\"")
         else:  # dedup_clave: repetición literal descartada por clave exacta
             claves = ev.get("claves") or {}
             kvs = {k: v for k, v in claves.items() if v is not None}
             kvs_txt = " · ".join(f"{k}={v}" for k, v in sorted(kvs.items()))
-            print(f"{'—':<6}  `{ev['fuente']}` · chunk {ev.get('chunk_index')} "
+            print(f"{'—':<6}  {_ident(ev)} "
                   f"(fila {ev.get('pos')}) · {ev.get('policy')}: {kvs_txt}")
             print(f"    descartado: \"{ev['snip']}\"")
 
