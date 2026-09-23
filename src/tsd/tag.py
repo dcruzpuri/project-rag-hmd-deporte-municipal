@@ -18,7 +18,7 @@ from transformers import pipeline
 from config import (
     OLLAMA_BASE_URL,
     TAG_PROVIDER, TAG_MODEL, HF_TAG_MODEL, GOOGLE_TAG_MODEL,
-    HF_DEVICE, HF_TOKEN, GOOGLE_API_KEY,
+    HF_DEVICE, HF_TOKEN, GOOGLE_API_KEY, TAG_MAX_TOKENS,
 )
 
 PROMPT = """Clasifica este documento sobre deporte municipal de Madrid.
@@ -65,7 +65,7 @@ _MODELOS_TAG = {
     "google": GOOGLE_TAG_MODEL,
 }
 
-_hf_gen = None  # caché: el pipeline de HF es caro de cargar, se reutiliza
+_HF_GEN = None  # caché: el pipeline de HF es caro de cargar, se reutiliza
 
 
 def _chat_ollama(prompt: str, model: str) -> str:
@@ -82,13 +82,23 @@ def _chat_ollama(prompt: str, model: str) -> str:
 
 def _chat_huggingface(prompt: str, model: str) -> str:
     """HuggingFace (online): pipeline text-generation de transformers."""
-    global _hf_gen
-    if _hf_gen is None:  # carga perezosa + caché
+    global _HF_GEN
+    if _HF_GEN is None:  # carga perezosa + caché
         kwargs = {"device": HF_DEVICE}
         if HF_TOKEN:  # solo para modelos gated
             kwargs["token"] = HF_TOKEN
-        _hf_gen = pipeline("text-generation", model=model, **kwargs)
-    out = _hf_gen(prompt, do_sample=False, return_full_text=False)
+        _HF_GEN = pipeline(
+            "text-generation",
+            model=model,
+            use_fast=True,
+            trust_remote_code=False,
+            model_kwargs={},
+        )
+    out = _HF_GEN(
+        prompt, 
+        do_sample=False, 
+        return_full_text=False
+    )
     return out[0]["generated_text"]
 
 
@@ -100,7 +110,12 @@ def _chat_google(prompt: str, model: str) -> str:
         f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
         headers={"x-goog-api-key": GOOGLE_API_KEY},
         json={"contents": [{"role": "user", "parts": [{"text": prompt}]}],
-              "generationConfig": {"temperature": 0.2, "maxOutputTokens": 256}},
+              "generationConfig": {
+                  "temperature": 0.2,
+                  "maxOutputTokens": TAG_MAX_TOKENS,
+                  # JSON puro, sin bloque ```json ni prosa alrededor.
+                  "responseMimeType": "application/json",
+              }},
         timeout=120,
     )
     r.raise_for_status()
@@ -130,23 +145,27 @@ def etiquetar(documentos: list[Document]) -> list[Document]:
     if fn_chat is None:
         raise ValueError(f"TAG_PROVIDER no soportado: {TAG_PROVIDER!r}")
     modelo = _MODELOS_TAG[TAG_PROVIDER]
-
+    
     t0 = time.time()
     for fuente, doc in por_fuente.items():
-        prompt = PROMPT.replace("{text}", doc.page_content[:6000])  # DOCUMENTAR: el tag solo ve los primeros 6000 caracterers del documento fuente
+        prompt = PROMPT.replace("{text}", doc.page_content[:8000])  # DOCUMENTAR: el tag solo ve los primeros 6000 caracterers del documento fuente
         try:
             d = _parse_json(fn_chat(prompt, modelo))
             if not isinstance(d, dict):
                 raise ValueError("el LLM devolvió un JSON que no es un objeto")
-        except (json.JSONDecodeError, KeyError, ValueError, TypeError, AttributeError):
+        except (json.JSONDecodeError, KeyError, ValueError, TypeError, AttributeError) as exc:
             # LLM con JSON malformado: categoría por defecto en vez de romper el pipeline
-            print(f"[TAG]   {fuente}: JSON malformado -> 'instalaciones' por defecto")
+            print(f"[TAG]   {fuente}: JSON malformado ({type(exc).__name__}: {exc}) "
+                  f"-> 'instalaciones' por defecto")
             d = {"categoria": "instalaciones", "tags": [], "relevancia": 0.5}
         # Taxonomía cerrada: se filtra a los valores conocidos (la metadata del
         # índice debe ser filtrable en la fase online; un tag libre la rompería).
         categoria = d.get("categoria", "instalaciones")
         if categoria not in CATEGORIAS_VALIDAS:
-            print(f"[TAG]   {fuente}: categoría {categoria!r} fuera de taxonomía -> 'instalaciones'")
+            print(
+                f"[TAG]   {fuente}: categoría {categoria!r} "
+                f"fuera de taxonomía -> 'instalaciones'"
+            )
             categoria = "instalaciones"
         tags = [t for t in d.get("tags", []) if t in TAGS_VALIDAS]
         meta = {

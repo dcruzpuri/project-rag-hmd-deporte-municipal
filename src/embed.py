@@ -47,13 +47,13 @@ _EMBED_LOG_EVERY = 10
 
 def _log_progreso_lote(lote: int, total: int, textos: int, t_lote: float) -> None:
     """Log por lote con la marca de tiempo/fase de consola:
-    `AAAAMMDD hh:mm:ss [EMBED]   lote i/N (n embeddings, s s) (Restante: 99m 99s)`.
+    `AAAAMMDD hh:mm:ss [EMBED]   lote i/N (n embeddings, seg/lote) [Restante: 99m 99s]`.
     La ETA parte del tiempo del último lote (basta para pantalla)."""
     eta = max(0.0, t_lote * (total - lote))
     m, s = divmod(int(eta), 60)
     print(time.strftime("%Y-%m-%d %H:%M:%S") +
           f" [EMBED]   lote {lote}/{total} ({textos} embeddings, {t_lote:.1f}seg/lote) "
-          f"(Restante: {m}m {s}s)")
+          f"[Restante: {m}m {s}s]")
 
 
 def _embed_ollama(textos: list[str], model: str | None = None,
@@ -93,7 +93,11 @@ def _embed_huggingface(textos: list[str], model: str | None = None,
         kwargs: dict[str, str] = {"device": HF_DEVICE}
         if HF_TOKEN:  # solo para modelos gated
             kwargs["token"] = HF_TOKEN
-        _HF_CACHE[nombre] = SentenceTransformer(nombre, **kwargs)
+        _HF_CACHE[nombre] = SentenceTransformer(
+                                modules=list(modules),          # convert str → list
+                                prompts=dict(prompts),          # convert str → dict
+                                trust_remote_code=bool(trust_remote_code),  # convert str → bool
+                            )
     # normalize_embeddings=True: vectores unitarios, coherente con la métrica de coseno de Chroma
     # truncate_dim: slice del prefijo (MRL-first para modelos Matryoshka); None si dim >= dim nativa
     # encode() hace una única llamada (batch internal del backend): se avisa de
