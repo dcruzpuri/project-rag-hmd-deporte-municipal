@@ -478,13 +478,15 @@ Este registro alimenta el informe de evaluación y la tabla de métricas de la i
 ### Dependencias adicionales
 Además de las dependencias de requirements.txt, la fase online requiere:
 
-- Necesario para la deduplicación (bloque TSD): `pip install faiss-cpu`
-- Necesario para usar GPU NVIDIA durante la indexación: `pip install torch --index-url https://download.pytorch.org/whl/cu121`
+# Necesario para la deduplicación (bloque TSD)
+pip install faiss-cpu
 
-Sin torch con CUDA, la indexación cae a CPU y su tiempo escala entre cindo y diez veces más que utilizando la tecnología de tensores.
+# Necesario para usar GPU NVIDIA durante la indexación
+pip install torch --index-url https://download.pytorch.org/whl/cu121
 
-> Nota sobre el modelo de generación: el modelo gemini-2.0-flash fue retirado por Google; la constante GOOGLE_GEN_MODEL se ha actualizado a gemini-3.6-flash.
+Sin torch con CUDA, la indexación cae a CPU y su tiempo se multiplica por cinco o diez.
 
+Nota sobre el modelo de generación: el modelo gemini-2.0-flash fue retirado por Google; la constante GOOGLE_GEN_MODEL se ha actualizado a gemini-3.6-flash.
 ## Corpus y fuentes
 
 Corpus de la sede de **datos abiertos del Ayuntamiento de Madrid** (descargado en septiembre de 2026). Datos públicos y de uso educativo:
