@@ -1,5 +1,5 @@
-#!/usr/bin/env python3
-"""Genera un gold set JSONL durante el indexado del corpus.
+"""
+Genera un gold set JSONL durante el indexado del corpus.
 
 Estrategia:
 1. Selecciona chunks reales del corpus ya cargado/chunkeado.
