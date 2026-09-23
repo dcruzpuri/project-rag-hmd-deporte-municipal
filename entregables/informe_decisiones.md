@@ -36,16 +36,26 @@ Valores aplicados por `src/chunk.py`:
 
 ### 2.2. Estrategia por tipo de documento
 
-El chunking no es uniforme: `src/csv_advisor.py` decide el tratamiento **antes** de trocear (receta de fuente conocida `RECETAS_CONOCIDAS` → heurística de perfil estructural → fallback conservador) y deposita un `chunking_hint` que consume `src/chunk.py`:
+El chunking no es uniforme, y el criterio es **el contenido, no la extensión**: los CSV se deciden en `src/csv_advisor.py` **antes** de trocear (receta de fuente conocida `RECETAS_CONOCIDAS` → heurística de perfil estructural → fallback conservador), los `.txt`/`.md` pasan primero por la detección de tabulares de `src/load.py` (sección 2.3), y todo deposita un `chunking_hint` que consume `src/chunk.py`:
 
 | Tipo de documento | Origen | `chunking_hint` | Qué se trocea | Por qué |
 |---|---|---|---|---|
-| PDF / TXT / MD | páginas `PyPDFLoader` / archivos de texto | `normal_chunk` (default) | Splitter recursivo 1000/100 | Texto de longitud variable (reglamentos, infografías); el fragmento debe caber en la ventana de embedding del modelo |
+| PDF / TXT / MD (texto plano) | páginas `PyPDFLoader` / `TextLoader` | `normal_chunk` (default) | Splitter recursivo 1000/100 | Texto de longitud variable (reglamentos, infografías); el fragmento debe caber en la ventana de embedding del modelo |
+| Tabular detectado en `.txt`/`.md` | CSV/TSV disfrazado que pasa `_es_tabular()` (p. ej. `211549-0-juegos-deportivos-actual.txt`) | `normal_chunk` por fila (`tabular_txt`) | 1 fila = 1 documento; el splitter solo actúa si la fila supera el CHUNK_SIZE | El advisor NO se usa aquí a propósito: un TSV con campo repetido se clasificaría como entidad y la dedup `exact_key` colapsaría todas las filas (fallo 4) |
 | Fila de entidad | CSV con ID estable: 200186 (polideportivos), 200215 (instalaciones), 210227 (piscinas), 300390 (áreas), 212504 (agenda) | `no_chunk` | No se trocea: 1 fila = 1 chunk | Una fila es una entidad indivisible (nombre + distrito + dirección…). Trocear separaría el ID de sus atributos y rompería la dedup `exact_key` que necesita ese ID |
 | Grupo de hechos | CSV sin ID, con medidas numéricas: 300085 (abonos), 300097 (descuentos) | `light_chunk` | Sin trocear si el grupo ≤ 1000; recursivo si lo supera | El advisor agrupa las filas por dimensiones (mes × centro × tipo) en un documento por grupo con desglose. Miles de casi-duplicados genéricos saturarían el espacio vectorial indexando un "resumen + desglose" por vez |
 | Tabla textual / CSV desconocido | Cualquier otro CSV | `normal_chunk` | Fila por documento troceado | Fallback conservador: la fila viaja sin troceado si es atómica |
 
-### 2.3. Validación
+### 2.3. Detección de tabulares en archivos de texto (cambio reciente)
+
+Los `.txt`/`.md` ya no se cargan ciegamente como texto plano: antes de trocear, `src/load.py` comprueba si el archivo es **tabular disfrazado** (CSV/TSV con extensión de texto) y, en ese caso, lo procesa por el mismo pipeline que los CSV (1 fila = 1 documento).
+
+- **Detección** (`_es_tabular`): reutiliza `leer_filas_csv` del pipeline de CSVs (encoding `utf-8-sig` → `cp1252` → `latin-1` y delimitador `;`/`,`/`\t` detectado por columna estable) y muestrea solo las primeras 50 filas: el archivo es tabular si hay **dos o más columnas y por encima de 50 filas**, además de conservar un número de columnas estable. Cualquier fallo de lectura se trata como "no tabular" (no rompe la carga de docs.).
+- **Clasificación forzada**: un `CsvAdvice` con `csv_kind=tabular_txt`, `treatment=row_as_doc` y `dedup_policy=exact_only` — es decir, **sin pasar por el advisor de CSVs**. Razón: un TSV con un campo que parece clave (p. ej. `Codigo_temporada`, repetido en muchas filas) se clasificaría `entity_doc` + `exact_key`, y la deduplicación por clave colapsaría todas las filas en un único documento.
+- **Evidencia** (auditoría de dedup sobre `211549-0-juegos-deportivos-actual.txt`, fallo 4): sin la detección, el archivo se cargaba como 1 documento → 1892 chunks erróneos → 476 tras deduplicación semántica agresiva (pérdida de ~1.400 chunks). Con la detección: **8769 filas = 8769 documentos** y 0 pérdidas por dedup semántica.
+- **Metadata**: cada documento lleva `doc_id` (ordinal dentro del archivo), que con `source` + `chunk_index` hace inequívoca cada fila para la auditoría de deduplicación.
+
+### 2.4. Validación
 
 - **Semántica** (`scripts/eval_coherencia_chunks.py`): sobre un texto de dominio, compara la similitud coseno media de pares adyacentes con pares aleatorios; margen > 0.05 → el overlap mantiene coherencia temática; margen prácticamente 0 (muy cercano) → cortes arbitrarios.
 
@@ -201,14 +211,34 @@ El sistema se abstiene porque los chunks no mencionan "Chamberí" explícitament
 Pregunta: ¿Qué descuentos hay para abonados?
 El CSV de descuentos contiene hechos pero no documenta explícitamente qué descuentos existen. El sistema se abstiene correctamente.
 
-**Fallo 3 — Tarifas_deportivas.pdf**
-El archivo acaba con 0 chunks. Posible causa: deduplicación agresiva, clave repetida o problema de carga. Pendiente de investigar.
+**Fallo 3 — `Tarifas_deportivas.pdf`**
+El archivo acaba con 0 chunks. Posible causa: deduplicación agresiva, clave repetida o problema de carga.
+
+- **Investigación:** [**FORTALEZA**] Se revisa el curado del corpus y se encuentra que el sistema de deduplicación discrimina el documento, dado que existe uno análogo con fecha más reciente (`PreciosPublicos2026.pdf`) que es casi idéntico y es el que toma como un único chunk para embedding. 
+
+**Fallo 4 — Deduplicación agresiva sobre `211549-0-juegos-deportivos-actual.txt`**
+El archivo pierde entorno a los 1.400 chunks por deduplicación agresiva al tomar el archivo entero como un único documento aparentemente colapsando todas las filas en una. Requiere investigación.
+| fuente | docs | chunks pre | chunks post (dedup) |
+|---|---|---|---|
+| 200215-0-instalaciones-deportivas.csv | 607 | 607 | 607 |
+| 20250912_Infograf%C3%ADaC%C3%B3moAdquirirOrenovarUnADM.pdf | 3 | 3 | 3 |
+| **211549-0-juegos-deportivos-actual.txt** | 1 | 1892 | 476 |
+
+- **Investigación:** El sistema de ingesta toma el archivo, que es de naturaleza tabular, como un único documento del que genera casi 1.900 chunks erróneamente. Se modifica la ingesta para que sea detectado en la carga de documentos (`load.py`) como archivo tabular, haciéndolo pasar por el mismo pipeline reaprovechado de los archivos CSV (ahora también trata TSV), lo que obtiene un grado mucho más acorde de chunking, a tenor de las líneas que contiene a modo de registro (1 fila = 1 documento), evitando caer por tanto en la deduplicación semántica:  
+
+| fuente | docs | chunks pre | chunks post (dedup) |
+|---|---|---|---|
+| 200215-0-instalaciones-deportivas.csv | 607 | 607 | 607 |
+| 20250912_Infograf%C3%ADaC%C3%B3moAdquirirOrenovarUnADM.pdf | 3 | 3 | 3 |
+| **211549-0-juegos-deportivos-actual.txt** | 8769 | 8769 | 8769 |
+
 
 ---
 
 ## 8. Siguientes pasos
 
-- Ampliar el corpus con documentos más descriptivos para reducir abstenciones por corpus incompleto
-- Investigar el fallo de `Tarifas_deportivas.pdf`
-- Probar con modelo de embeddings de mayor dimensión
-- Evaluar con las 22 preguntas del dataset de evaluación
+[ ]Ampliar el corpus con documentos más descriptivos para reducir abstenciones por corpus incompleto.  
+[✓] Investigar el fallo de `Tarifas_deportivas.pdf`.  
+[✓] Investigar la deduplicación agresiva sobre `211549-0-juegos-deportivos-actual.txt`.  
+[ ] Probar con modelo de embeddings de mayor dimensión.  
+[ ] Evaluar con las 22 preguntas del dataset de evaluación.  

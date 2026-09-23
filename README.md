@@ -8,21 +8,14 @@ Asistente conversacional que responde preguntas sobre el deporte municipal de Ma
 - **Miguel** — retrieval, generación, orquestación (`responder()`)
 - **David** — interfaz Streamlit, evaluación, documentación
 
-## Requisitos
+## Requisitos principales
 
 - Python 3.10+
-- Ollama instalado y corriendo (`ollama serve`)
-- API key de Google Gemini
-<<<<<<< HEAD
-# Generación Aumentada por Recuperación (RAG) para el Deporte Municipal del Ayuntamiento de Madrid
-=======
-# project-rag-hmd-deporte-municipal
+- Ollama instalado y corriendo (`ollama serve`) ó 
+- API key de Google Gemini ó
+- Token de HuggingFace.
 
-La interfaz web permite interactuar con el sistema RAG de forma visual.
-
-## Paso 0 — Instalación y arranque
 # Retrieval Augmented Generation (RAG) para Deporte Municipal del Ayuntamiento de Madrid
->>>>>>> origin/develop
 
 Este proyecto implementa un sistema RAG (Retrieval Augmented Generation, generación aumentada por recuperación) que responde preguntas a partir del contenido recuperado de los documentos sobre deporte municipal del Ayuntamiento de Madrid: tarifas, abonos, reservas, horarios e instalaciones.
 
@@ -48,7 +41,7 @@ Preguntas de ejemplo; el corpus debe responder a las 18 preguntas de [`queries/p
 - ¿Puedo reservar siendo no empadronado?
 - ¿Qué pasa si cancelo una reserva con coste?
 
-## Estructura del proyecto
+## ESTRUCTURA DEL PROYECTO
 
 La raíz del proyecto contiene los elementos siguientes:
 
@@ -69,7 +62,7 @@ La raíz del proyecto contiene los elementos siguientes:
 - `src/tsd/scoring.py`: fase SCORING; cálculo de la relevancia, la centralidad, la redundancia y la autoridad.
 - `src/tsd/dedup.py`: fase DEDUP; deduplicación de tipo greedy por similitud coseno usando FAISS.
 - `data/`: corpus del proyecto: ocho archivos PDF, siete archivos CSV y un archivo de texto.
-- `queries/`: preguntas de evaluación (18 en total).
+- `queries/`: preguntas de evaluación (22 en total).
 - `scripts/`: validación del chunking y de los embeddings, benchmark del bloque TSD, auditoría de los pares descartados y evaluación del corpus.
 - `tests/`: pruebas de pytest sin conexión (carga, limpieza, chunking, embeddings, CSV, TSD, informe y corpus de preguntas).
 - `docs/`: documentación técnica (incluye el anexo de funciones).
@@ -77,7 +70,7 @@ La raíz del proyecto contiene los elementos siguientes:
 
 Para conocer las funciones de cada archivo (firmas y comportamiento), consultar [`docs/ANEXO_FUNC.md`](docs/ANEXO_FUNC.md).
 
-## Instalación
+## INSTALACIÓN Y ARRANQUE RÁPIDO
 
 ### 1. Clonar el repositorio
 
@@ -105,44 +98,47 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-<<<<<<< HEAD
-### 3. Configurar el archivo `.env`
-=======
-## Paso 1 — Ejecutar la app
+### 3. Configuración inicial del archivo `.env`
+Genera una copia de la plantilla `.env.example`
+
+```bash
+cp .env.example .env
+```
+El proveedor se elige en cada interruptor de provider (`EMBED_PROVIDER`, `TAG_PROVIDER` y `GEN_PROVIDER`; el valor puede ser `ollama`, `huggingface` o `google`):
+
+- **Ollama**: es preciso arrancar Ollama con el modelo de embeddings y el modelo de lenguaje descargados (la dirección base se configura en `OLLAMA_BASE_URL`, cuyo valor por defecto es `http://127.0.0.1:11434`).
+- **HuggingFace**: configurar `HF_DEVICE` (el valor `cpu` o `cuda`) y, únicamente si el modelo es de acceso restringido, introducir el token propio en `HF_TOKEN`.
+- **Google**: introducir la clave propia en `GOOGLE_API_KEY`.
+
+Nota: si se cambia el modelo de embeddings o el troceado, es preciso **regenerar el índice** con el flag `--recreate-index` que se utiliza desde el raíz del proyecto con el siguiente comando simplificado:
+
+```bash
+python -m src.pipeline data --recreate-index
+```
+
+### 4. Ejecutar la app
 
 ```bash
 streamlit run app.py
 ```
 
 ### Funcionalidades
+
 - Chat con historial de conversación
 - Contexto y chunks recuperados visibles
 - Métricas por consulta (TOP_K, nº chunks, tiempo, modelo)
 - Selector de TOP_K en el sidebar
-### 3. Configura `.env`
->>>>>>> origin/develop
 
-```bash
-cp .env.example .env
-```
+## USO
 
-El proveedor se elige en cada interruptor (`EMBED_PROVIDER`, `TAG_PROVIDER` y `GEN_PROVIDER`; el valor puede ser `ollama`, `huggingface` o `google`):
+### 1. Fase de indexación del corpus
 
-- **Ollama**: es preciso arrancar Ollama con el modelo de embeddings y el modelo de lenguaje descargados (la dirección base se configura en `OLLAMA_BASE_URL`, cuyo valor por defecto es `http://127.0.0.1:11434`).
-- **HuggingFace**: configurar `HF_DEVICE` (el valor `cpu` o `cuda`) y, únicamente si el modelo es de acceso restringido, introducir el token propio en `HF_TOKEN`.
-- **Google**: introducir la clave propia en `GOOGLE_API_KEY`.
-
-Nota: si se cambia el modelo de embeddings o el troceado, es preciso **regenerar el índice** con el flag `--recreate-index` (ver la sección [Uso](#uso)).
-
-## Uso
-
-### Interfaz web
+Configurado el entorno de en el archivo `.env` se debe llamar al indexado del corpus con la siguiente instrucción ejecutada desde el raíz del proyecto:
 
 ```bash
 python -m src.pipeline data --recreate-index
 ```
-
-La consola muestra el avance fase a fase; las líneas sin marca de tiempo son el detalle que emiten los módulos internos (por ejemplo, una línea de etiquetado por fuente o una línea de inserción por lote):
+El proceso se lanza mostrando por consola el avance fase a fase:
 
 ```text
 2026-09-01 12:00:00 [PREFLIGHT] modelo sentence-transformers/all-MiniLM-L6-v2 disponible en ollama
@@ -159,9 +155,10 @@ La consola muestra el avance fase a fase; las líneas sin marca de tiempo son el
 2026-09-01 12:00:07 [INFORME] informe generado: output/informe_index_0a1b2c3d_20260901_1200.md
 ```
 
-Además, la función `ejecutar_pipeline` devuelve un diccionario de métricas con las claves `num_documentos_cargados`, `num_chunks_pre_dedup` y `num_chunks_post_dedup`, `chunks_descartados`, `dim_embedding`, `dim_declarado` y `dim_modelo`, `chunk_stats`, `fuentes`, `integridad`, `scoring` (incluye la cobertura por categoría y los tres tags principales), `dedup`, `indice`, `preflight`, `fases` y `tiempo_total_s`; ese diccionario alimenta directamente el informe y la evaluación.
+Una vez terminado el proceso, la ejecución del pipeline de ingesta-indexación deja un informe del proceso en `output/` con los parámetros configurados para el proceso (`.env`), además de una serie de métricas e información que se explican en la sección de interpretación del informe.
 
-### Parámetros opcionales del pipeline
+
+### Parámetros opcionales del pipeline de ingesta-indexación
 
 La línea de comandos se invoca de la siguiente forma:
 
@@ -170,38 +167,153 @@ python -m src.pipeline [-h] [--chunk-size CHUNK_SIZE] [--chunk-overlap CHUNK_OVE
     [--persist-dir PERSIST_DIR] [--collection COLLECTION] [--recreate-index] rutas [rutas ...]
 ```
 
-Los parámetros disponibles son los siguientes:
+Los parámetros disponibles para la ejecución del pipeline de ingesta-indexación son los siguientes:
 
-- `rutas`: archivos o carpetas a indexar (por ejemplo, `data`); no tiene valor por defecto y es obligatorio indicarlo.
-- `--chunk-size`: longitud del chunk; por defecto toma el valor de `CHUNK_SIZE` definido en el archivo `.env`.
-- `--chunk-overlap`: solapamiento entre chunks; por defecto toma el valor de `CHUNK_OVERLAP` definido en el archivo `.env`.
-- `--persist-dir`: directorio donde reside ChromaDB; por defecto toma el valor de `CHROMA_DIR` definido en el archivo `.env`.
-- `--collection`: nombre de la colección; por defecto toma el valor de `COLLECTION_NAME` definido en el archivo `.env`.
-- `--recreate-index`: borra la colección antes de indexar; por defecto, no se borra.
+- `rutas`: archivos o carpetas con el corpus de documentos a tratar para indexación (por ejemplo, `data`); no tiene valor por defecto y es obligatorio indicarlo.
+- `--chunk-size`: longitud del chunk (troceado del texto), por defecto toma el valor de `CHUNK_SIZE` definido en el archivo `.env`.
+- `--chunk-overlap`: solapamiento entre chunks, por defecto toma el valor de `CHUNK_OVERLAP` definido en el archivo `.env`.
+- `--persist-dir`: directorio donde reside ChromaDB, por defecto toma el valor de `CHROMA_DIR` definido en el archivo `.env`.
+- `--collection`: nombre de la colección, por defecto toma el valor de `COLLECTION_NAME` definido en el archivo `.env`.
+- `--recreate-index`: genera una nueva colección de índices vectorizados, quedando disponible la anterior en el espacio de disco (sería preciso borrarla si se estima que no será reutilizada).
 
-### Informe de indexación (archivo de salida)
+### Informe de indexación (archivo de salida del pipeline)
 
-Cada ejecución escribe su informe (salvo cuando se desactiva con `informe=False` en las pruebas): una lectura única que responde a **qué parámetros determinaron esta ejecución** y a **cómo quedaron las métricas**, en siete secciones (parámetros, preverificación, métricas por fase, troceado, índice final, bloque TSD y señales con criterios de decisión). Cada fila de la tabla de parámetros corresponde a un parámetro que de verdad influyó en la ejecución; las credenciales no se vuelcan nunca.
+Cada ejecución genera un informe en la carpeta `output/`. 
 
-Para la descripción ampliada (reglas de la tabla de parámetros, interpretación sección a sección y relación de señales con la condición y la acción recomendada), consultar [`docs/ANEXO_OUTPUTS.md`](docs/ANEXO_OUTPUTS.md).
+La información contenida en él ser estructura como sigue a continuación:
+
+#### Parámetros aplicados
+
+Esta sección enumera todas las variables de configuración que han gobernado la ejecución del pipeline:
+
+- Proveedores y modelos de embeddings, etiquetado y generación.
+- Dimensiones de embedding declaradas y efectivas.
+- Tamaño de lote de embeddings.
+- Parámetros de chunking (CHUNK_SIZE, CHUNK_OVERLAP).
+- Configuración de deduplicación y scoring (TAG_SCORING_DEDUP, DEDUP_UMBRAL).
+- Ruta y nombre de la colección en ChromaDB.
+- Métrica de similitud (coseno).
+- Flags de recreación del índice y exportación de embeddings.
+
+Este primer apartado permite tener el registro de lo configurado para el proceso de ingesta-indexado, pudiendo servir para reproducir en otras ocasiones exactamente el mismo experimento, comparar distintas ejecuciones y detectar desalineaciones (por ejemplo, cuando la dimensión declarada en .env difiere de la dimensión real o máxima que maneja el modelo de embeddings).
+
+#### Preflight
+
+Recoge el resultado de las comprobaciones previas a la indexación:
+- Verificación de disponibilidad del modelo de embeddings.
+- Dimensión máxima declarada para el modelo.
+- Avisos o errores detectados antes de empezar.
+
+Su principal utilidad es asegurar que el pipeline no arranca en una configuración inadecuada. Documenta si se han ignorado advertencias relevantes, como puede ser el no declarar la dimensión nativa del modelo. Que a su vez está protegida por el código ya que no tratará de indexar dimensiones por encima de las que el modelo pueda manejar.
+
+#### Métricas por fase
+
+Presenta un resumen con las características temporales y cuantitativas de cada etapa del pipeline:
+- PREFLIGHT: validación inicial.
+- LOAD: número de documentos cargados.
+- CLEAN: documentos normalizados.
+- TAG: fuentes etiquetadas por el LLM.
+- CHUNK: número de chunks generados y estadísticas de longitud.
+- EMBED: número de vectores generados y dimensión.
+- TSD: chunks descartados por scoring y deduplicación semántica.
+- INDEX: vectores insertados en ChromaDB.
+- FIN: tiempo total del pipeline.
+
+Identifica cuellos de botella (normalmente la fase de embeddings), permite comparar el coste computacional de distintas configuraciones y verifica que no haya pérdidas inesperadas de documentos entre fases.
+
+#### Corpus y chunking
+
+Describe cómo se ha transformado el corpus en chunks mediante los siguientes indicadores:
+- Tabla por fuente con número de documentos: chunks antes de deduplicar y chunks después de deduplicar.
+- Estadísticas de longitud de los chunks en caracteres: mínimo, percentiles, media, máximo.
+- Conteo de chunks muy cortos y de entidades indexadas íntegramente (no_chunk).
+
+Permite la detectación de fuentes problemáticas, como puede ser el caso de muchos chunks, muy cortos o muy largos, incluso da visibilidad sobre el impacto del chunking por tipo de documento (CSV, PDF, TXT) y justificar decisiones de diseño como son: tamaño de chunk, solapamiento, políticas de no fragmentar en cuanto a ciertas entidades.
+
+#### Índice final (ChromaDB)
+
+Caracteriza el índice vectorial resultante:
+- Nombre de la colección y espacio vectorial.
+- Dimensión de embedding efectiva.
+- Número de vectores insertados y totales.
+- Indicación de si se recreó el índice.
+- Métricas de integridad: ausencia de NaN/Inf, norma L2 de los vectores.
+
+Principalmente certifica que el índice está técnicamente sano, que todos los vectores tienen la misma dimensión y que no hay valores numéricos anómalos que puedan romper el retrieval.
+
+#### TSD (scoring + dedup)
+
+Esta sección, que es opcional por parámetro configurable (en `.env/TAG_SCORING_DEDUP=true/false`) se divide en tres subapartados:
+
+1. Scoring (semantic_score)
+
+Como referencia de señal interna del corpus en el indexado:
+- Distribución del semantic_score (mínimo, media, máximo).
+- Centralidad media y redundancia media.
+- Número y porcentaje de chunks con score superior a un umbral interno.
+- Tiempo dedicado a esta fase.
+
+Además, incluye la redundancia por agrupaciones basadas en la política de deduplicación, que definen cuando dos chunks pueden considerarse el mismo y, por tanto, cuando debe descartarse uno. Estos grupos conviven en dos lógicas distintas:
+- Deduplicación exacta (por clave): `exact_key`, `exact_only`, y `group_only`.
+- Deduplicación semántica (similitud de coseno): `semántica`
+
+Esta parte es útil ayudando a entender la geometría del espacio vectorial (coherencia con el centroide, nivel de repetición semántica) y a detectar si hay fuentes muy redundantes. Aclarar también que estas métricas no son evaluación de retrieval, sino señales internas de priorización del corpus.
+
+2. Dedup
+
+Resume el efecto de la deduplicación:
+- Umbral de coseno aplicado.
+- Chunks antes y después de deduplicar.
+- Descartes exactos y semánticos.
+- Fuentes donde se concentran los descartes.
+- Ruta del fichero de auditoría de pares deduplicados.
+
+Documenta cuánta información se ha considerado duplicada, en qué fuentes se concentra y permite auditar casos concretos para ajustar el umbral o las políticas de deduplicación.
+
+> Para una investigación más profunda existe la herramienta de auditoría de deduplicación, que genera una salida de los pares que han entrado a la deduplicación y sus valores principales dentro del corpus para esta fase.
+
+- Cómo ejecutar la auditoría de deduplicación: desde la raíz del proyecto, ejecutar en consola el comando que se muestra a continuación.
+
+```bash
+python scripts/auditar_dedup.py --ruta output/dedup_audit.jsonl
+```
+
+#### Cobertura por categoría
+
+Presenta la distribución de chunks por categoría temática extensible en inicio para todos los chunks de un documento.
+
+Las categorías existentes actualmente son: abonos, agenda, instalaciones, normativa, reservas, tarifas; antes y después de deduplicar, así como los tags más frecuentes.
+
+Su utlidad reside en permitir la comprobación de la validez del corpus evitando el sesgo hacia un único tema, además de identificar categorías infra o sobrerrepresentadas y entender cómo el etiquetado automático está clasificando el contenido.
+
+#### Señales y criterios de decisión
+
+Esta última sección sintetiza las observaciones más relevantes para la toma de decisiones:
+- Alertas sobre chunking (por ejemplo, chunks demasiado cortos).
+- Comentarios sobre la distribución del scoring y su interpretación.
+- Recomendaciones sobre qué revisar si el corpus se percibe como pobre (por ejemplo, el modelo de TAG, que solo ve una parte del documento).
+
+Conecta las métricas con acciones concretas (ajustar chunking, cambiar modelo de embeddings, revisar TAG, modificar umbral de deduplicación) y deja constancia de las hipótesis para iteraciones futuras.
+
+Este esquema permite que cualquier miembro del equipo, o un evaluador externo, entienda rápidamente qué se ha hecho, cómo se ha hecho y qué decisiones técnicas se han tomado, además de contar con la información necesaria para reproducir o mejorar el pipeline en futuras iteraciones.
 
 ### Validación (scripts y pruebas)
 
-```bash
-# Coherencia de los cortes: similitud coseno entre chunks adyacentes frente a chunks aleatorios
-python -m scripts.eval_coherencia_chunks
+A continuación algunas utlidades que pueden ser interesantes:
 
-# Margen de un modelo de embeddings (Ollama arrancado)
-python -m scripts.test_embeddings
+```bash
+# Coherencia de los cortes: similitud coseno entre chunks adyacentes frente a chunks aleatorios  
+python -m scripts.eval_coherencia_chunks   
+
+# Margen de un modelo de embeddings (Ollama arrancado)   
+python -m scripts.test_embeddings  
 
 # Coste real del bloque TSD (requiere output/embeddings.json con EXPORT_EMBEDDINGS=true)
-python -m scripts.benchmark_tsd
+python -m scripts.benchmark_tsd   
 
 # Auditoría de pares descartados por la deduplicación (muestreo del archivo JSONL)
-python scripts/auditar_dedup.py --fuente 211549-0-juegos-deportivos-actual.txt --top 20
+python scripts/auditar_dedup.py --ruta output/dedup_audit.jsonl --fuente 211549-0-juegos-deportivos-actual.txt --top 20   
 
-# Pruebas offline de carga, limpieza, chunking, embeddings, CSV, TSD e informe
-python -m pytest tests/ -v
 ```
 
 Además, el archivo `scripts/evaluar_rag_corpus.py` calcula métricas de embeddings, chunks y recuperación a partir del volcado del pipeline, y `scripts/generar_eval_rag_en_indexado.py` genera un conjunto de referencia (preguntas y fuentes relevantes) con un modelo de lenguaje durante el indexado.
@@ -223,7 +335,7 @@ Todo lo configurable reside en `config.py`, que lee el archivo `.env` con valore
 
 Para el resto de variables (la constante `EMBED_BATCH_SIZE`, la memoria caché offline de la preverificación con las constantes `EMBED_DIM_MAX_*`, la constante `EXPORT_EMBEDDINGS`, las constantes `CHROMA_DIR` y `COLLECTION_NAME`), la referencia completa está en [`docs/FT_CORPUS_DATA.md`](docs/FT_CORPUS_DATA.md) para los valores que resuelve `config.py` y en [`docs/ANEXO_FUNC.md`](docs/ANEXO_FUNC.md) para el efecto que tiene cada constante; la plantilla canónica, con cada valor por defecto comentado, es el archivo [`.env.example`](.env.example).
 
-Nota importante: si se cambian las constantes `EMBED_*` o `CHUNK_*`, o el propio corpus, hay que volver a ejecutar el pipeline con el flag `--recreate-index`. Los vectores son función directa del texto troceado; un índice no regenerado produce resultados inválidos.
+> Nota importante: si se cambian las constantes `EMBED_*` o `CHUNK_*`, o el propio corpus, hay que volver a ejecutar el pipeline con el flag `--recreate-index`. Los vectores son función directa del texto troceado; un índice no regenerado produce resultados inválidos.
 
 ## Cómo funciona cada fase
 
@@ -239,7 +351,7 @@ Nota importante: si se cambian las constantes `EMBED_*` o `CHUNK_*`, o el propio
 - **Indexación** (módulo `src/index.py`): inserta en ChromaDB por lotes, sanea los metadatos y verifica que los identificadores estén vivos en la colección.
 - **Informe** (módulo `src/informe.py`): escribe el archivo del informe de indexación con los parámetros, las métricas y las señales.
 
-Cada fase se apoya en los **metadatos** que dejó la fase anterior: el etiquetado los escribe, el troceado los propaga a los fragmentos, la puntuación los lee y los enriquece con la puntuación semántica, la deduplicación los consulta para ordenar el descarte y la indexación los sanea antes de persistirlos en ChromaDB. Para el detalle por funciones (firmas y comportamiento), consultar [`docs/ANEXO_FUNC.md`](docs/ANEXO_FUNC.md); para el estado completo del pipeline (flujo de invocación y métricas por consola), la referencia [`docs/FT_CORPUS_DATA.md`](docs/FT_CORPUS_DATA.md).
+Cada fase se apoya en los **metadatos** que dejó la fase anterior: el etiquetado los escribe, el troceado los propaga a los fragmentos, la puntuación los lee y los enriquece con la puntuación semántica, la deduplicación los consulta para ordenar el descarte y la indexación los sanea antes de persistirlos en ChromaDB. Para el detalle por funciones (firmas y comportamiento), consultar [`docs/ANEXO_FUNC.md`](docs/ANEXO_FUNC.md) para el estado completo del pipeline (flujo de invocación y métricas por consola), y la referencia [`docs/FT_CORPUS_DATA.md`](docs/FT_CORPUS_DATA.md).
 
 ### Criterios de puntuación semántica (semantic_score)
 
@@ -250,11 +362,13 @@ Cada chunk recibe una puntuación semántica (un valor entre cero y uno) que com
 - **La no redundancia** (peso 0.20): mide cuánto se diferencia el chunk de su vecino más parecido (búsqueda con FAISS de dos vecinos, excluyendo el propio); si el contenido ya existe en otro chunk, no aporta señal nueva.
 - **La autoridad** (peso 0.15): es un ajuste fino según el tipo de fuente (reglamento o normativa, valor 1.0; precios o tarifas, valor 0.9; agenda, valor 0.6; el resto, valor 0.7). Una norma pesa más que un archivo CSV genérico, pero no puede compensar una baja relevancia.
 
-La redundancia se calcula con FAISS (búsqueda de dos vecinos) en vez de materializar la matriz completa de similitud, de manera que la memoria crece linealmente con el número de chunks y su dimensión, y no de forma cuadrática (aproximadamente 1.3 GB frente a 68 GB en la escala real). La puntuación alimenta la deduplicación greedy de la fase DEDUP y, en el mapa de ruta, la reordenación de la recuperación. Para conocer el porqué del peso de cada parte y cómo se mide, consultar la sección de *scoring semántico* en [`docs/FT_CORPUS_DATA.md`](docs/FT_CORPUS_DATA.md); para la implementación, [`docs/ANEXO_FUNC.md`](docs/ANEXO_FUNC.md).
+La redundancia se calcula con FAISS (búsqueda de dos vecinos) en vez de materializar la matriz completa de similitud, de manera que la memoria crece linealmente con el número de chunks y su dimensión, y no de forma cuadrática (aproximadamente 1.3 GB frente a 68 GB en la escala real). La puntuación alimenta la '_deduplicación greedy_' de la fase DEDUP y, en el mapa de ruta, la reordenación de la recuperación. Para conocer el porqué del peso de cada parte y cómo se mide, consultar la sección de *scoring semántico* en [`docs/FT_CORPUS_DATA.md`](docs/FT_CORPUS_DATA.md); para la implementación, [`docs/ANEXO_FUNC.md`](docs/ANEXO_FUNC.md).
+
+> Los algoritmos greedy (aagresivos) suelen tratar los grandes volúmenes de datos como una optimización de mínimo o máximo como solución óptima local, pretendiendo obtener una solución óptima global.
 
 ### Clasificación de los archivos CSV (csv_advisor)
 
-Los archivos CSV no se tratan igual que el resto: antes de trocear, el módulo `src/csv_advisor.py` decide el tratamiento de cada uno (la etiqueta `[CSV]` se muestra por consola). Son dos niveles de decisión, de lo más económico a lo más costoso: en primer lugar, la **receta de la fuente conocida** (la constante `RECETAS_CONOCIDAS`, con una confianza de 0.99); y, si el esquema cambió o la fuente es nueva, la **heurística por perfil estructural** (cardinalidades, densidad numérica y columnas de identificador, medida, temporal o narrativa). Un archivo CSV desconocido queda en la política conservadora `unknown_csv` o `exact_only` (confianza 0.4): no rompe nada y queda registrado para su revisión. La deduplicación de los archivos CSV **nunca es semántica**; se realiza por clave exacta. La tabla de decisiones del corpus actual, la distinción entre tablas de entidad y tablas de hechos y el glosario de los registros están en [`docs/ANEXO_FUNC.md`](docs/ANEXO_FUNC.md).
+Los archivos CSV y TSV (de carácter tabular) no se tratan igual que el resto: antes de trocear, el módulo `src/csv_advisor.py` decide el tratamiento de cada uno (la etiqueta `[CSV]` se muestra por consola). Son dos niveles de decisión, de lo más económico a lo más costoso: en primer lugar, la **receta de la fuente conocida** (la constante `RECETAS_CONOCIDAS`, con una confianza de 0.99); y, si el esquema cambió o la fuente es nueva, la **heurística por perfil estructural** (cardinalidades, densidad numérica y columnas de identificador, medida, temporal o narrativa). Un archivo CSV desconocido queda en la política conservadora `unknown_csv` o `exact_only` (confianza 0.4): no rompe nada y queda registrado para su revisión. La deduplicación de los archivos CSV **nunca es semántica**; se realiza por clave exacta. La tabla de decisiones del corpus actual, la distinción entre tablas de entidad y tablas de hechos y el glosario de los registros están en [`docs/ANEXO_FUNC.md`](docs/ANEXO_FUNC.md).
 
 ## Fase online — Recuperación, generación y CLI
 
@@ -281,18 +395,21 @@ python main.py --ask "¿Cuál es la capital de Francia?" --json
 
 # Indexación del corpus
 python main.py --index --recreate-index
+```
 
 El comportamiento del comando --ask se puede resumir así:
 
-Elemento	Descripción
-Respuesta	Texto generado por Gemini usando exclusivamente el contenido del corpus
-Fuentes	Lista única de archivos fuente usados en el prompt
-Métricas	top_k, n_chunks, model, retrieval (segundos), generation (segundos)
-Abstención	Booleano; true si el sistema se abstuvo
-Error	Mensaje si algo falla antes de llamar al LLM
-API interna
+### Elemento →	Descripción
+Respuesta: Texto generado por Gemini usando exclusivamente el contenido del corpus
+Fuentes: 	Lista única de archivos fuente usados en el prompt
+Métricas:	top_k, n_chunks, model, retrieval (segundos), generation (segundos)
+Abstención:	Booleano; true si el sistema se abstuvo
+Error:	Mensaje si algo falla antes de llamar al LLM
+API: interna
+
 Además de la línea de comandos, la fase online expone dos funciones reutilizables sin UI. La interfaz de Streamlit (David) las consume directamente:
 
+```python
 from src.logic import responder, rag_ask
 
 resultado = responder("¿Qué piscinas municipales hay en Madrid?", top_k=5)
@@ -306,17 +423,19 @@ resultado = responder("¿Qué piscinas municipales hay en Madrid?", top_k=5)
 
 texto = rag_ask("¿Qué descuentos hay para abonados?")
 # -> solo la respuesta en texto (útil para el módulo de Agentes)
+```
 
-Grounding y abstención
+### Grounding y abstención
+
 El sistema implementa dos capas de abstención independientes:
 
-Guardrail de distancia (src/logic.py): si la mejor distancia coseno del top-k supera el umbral UMBRAL_ABSTENCION = 0.65, el sistema se abstiene sin llamar al LLM. Esto ahorra tokens y latencia cuando la pregunta está fuera del dominio del corpus.
+- **Guardrail de distancia (src/logic.py)**: si la mejor distancia coseno del top-k supera el umbral UMBRAL_ABSTENCION = 0.65, el sistema se abstiene sin llamar al LLM. Esto ahorra tokens y latencia cuando la pregunta está fuera del dominio del corpus.
 
-Prompt restrictivo (src/prompts.py): si el LLM recibe contexto pero no encuentra información suficiente, devuelve literalmente el valor de ABSTENTION_MESSAGE.
+- **Prompt restrictivo (src/prompts.py)**: si el LLM recibe contexto pero no encuentra información suficiente, devuelve literalmente el valor de ABSTENTION_MESSAGE.
 
 Además, el prompt obliga a citar las fuentes cuando el contexto las incluye.
 
-Comportamiento verificado
+#### Comportamiento verificado
 Pregunta	Resultado
 "¿Qué piscinas municipales hay en Madrid?"	✅ Responde con 18 piscinas y fuentes citadas
 "¿Qué instalaciones deportivas hay en Chamberí?"	⚠️ Abstención (los chunks no mencionan el distrito)
@@ -325,6 +444,7 @@ Pregunta	Resultado
 Configuración específica de la fase online
 Las variables del archivo .env que controlan la fase online son las siguientes:
 
+```text
 GEN_PROVIDER (valor por defecto, google): proveedor del LLM de generación; los valores admitidos son google, huggingface y ollama.
 
 GOOGLE_GEN_MODEL (valor por defecto, gemini-3.6-flash): nombre del modelo de generación.
@@ -338,8 +458,9 @@ MAX_CHUNKS (valor por defecto, 5): número máximo de chunks que entran al promp
 GEN_TEMPERATURE (valor por defecto, 0.2): temperatura del LLM; se mantiene baja para reforzar el grounding.
 
 ABSTENTION_MESSAGE: mensaje literal que se devuelve cuando no hay evidencia suficiente.
+``` 
 
-Registro por consulta
+### Registro por consulta
 Cada consulta emite por consola una línea con formato JSON que resume la ejecución. Un ejemplo:
 
 {
@@ -354,7 +475,7 @@ Cada consulta emite por consola una línea con formato JSON que resume la ejecuc
 
 Este registro alimenta el informe de evaluación y la tabla de métricas de la interfaz de Streamlit.
 
-Dependencias adicionales
+### Dependencias adicionales
 Además de las dependencias de requirements.txt, la fase online requiere:
 
 # Necesario para la deduplicación (bloque TSD)
@@ -371,7 +492,8 @@ Nota sobre el modelo de generación: el modelo gemini-2.0-flash fue retirado por
 Corpus de la sede de **datos abiertos del Ayuntamiento de Madrid** (descargado en septiembre de 2026). Datos públicos y de uso educativo:
 
 - El archivo `PreciosPublicos2026.pdf` procede de [Precios públicos centros deportivos 2026](https://www.madrid.es/UnidadesDescentralizadas/Deportes/Colecciones/ficheros/TarifasD/PreciosPublicos2026.pdf).
-- El archivo `Tarifas_deportivas.pdf` procede de [Tarifas de servicios en centros deportivos](https://www.madrid.es/UnidadesDescentralizadas/Deportes/Colecciones/ficheros/TarifasD/Tarifas_deportivas.pdf).
+- ~~El archivo `Tarifas_deportivas.pdf` procede de [Tarifas de servicios en centros deportivos](https://www.madrid.es/UnidadesDescentralizadas/Deportes/Colecciones/ficheros/TarifasD/Tarifas_deportivas.pdf).~~
+> Documento duplicado, obsoleto respecto del vigente `PreciosPublicos2026.pdf`, detectado en fase de deduplicación (_luego positivo_) y decisión por parte del equipo de eliminarlo del corpus curado.
 - El archivo `reglamento_instalaciones.pdf` es el [Reglamento de instalaciones deportivas](https://sede.madrid.es/eli/es-md-01860896/reg/2012/10/15/(1)/dof/spa/pdf).
 - El archivo `PiscinasAireLibre2026.pdf` son las [Piscinas de verano 2026 aire libre](https://www.madrid.es/UnidadesDescentralizadas/Deportes/EspecialInformativo/Verano2026/ficheros/PiscinasAireLibre2026.pdf).
 - El archivo `DecretoAnulacionReservasConCoste.pdf` es el [Decreto de anulación de reservas con coste](https://www.madrid.es/UnidadesDescentralizadas/Deportes/ContenidoGenerico/ContenidoGenerico2024/Ficheros/DecretoAnulacionReservasConCoste.pdf).
@@ -404,21 +526,44 @@ Completado en la versión actual:
 - Pipeline offline completo con bloque TSD.
 - Proveedor múltiple (Ollama, HuggingFace y Google).
 - Índice en ChromaDB verificado y regenerable.
-
-Pendiente (fase online):
-
 - Recuperación: el flag `--query` con filtrado por `doc_category` y por los booleanos de cada tag (ya presentes en el índice mediante el filtrado `where` de Chroma) y reordenación por la puntuación semántica.
 - Generación con RAG y abstención: el flag `--ask`.
 - Interfaz de Streamlit: chat y chunks visibles, y tabla de métricas.
 
 ## Solución de problemas
 
-- **El pipeline se interrumpe en la preverificación con un mensaje PREFLIGHT que indica que el modelo no está disponible en el proveedor seleccionado.** Causa probable: el modelo no existe en el proveedor seleccionado (error tipográfico, o Ollama no cuenta con él descargado). Solución: arrancar el servicio con el modelo descargado (mediante el comando `ollama pull` seguido del nombre del modelo) o corregir la constante `EMBED_*_MODEL` correspondiente en el archivo `.env`.
-- **El pipeline emite un aviso PREFLIGHT de que la verificación online no pudo completarse (red cortada o ausencia de clave API).** El modelo se asume disponible a través de la memoria caché `EMBED_DIM_MAX_*`. Es un mensaje informativo y el proceso continúa; para blindarlo por completo, conviene declarar la constante `EMBED_DIM_MAX_` del proveedor en el archivo `.env`, arrancar el servicio y configurar la clave `GOOGLE_API_KEY` si el proveedor es Google.
-- **El pipeline emite un aviso AVISO de que `EMBED_DIM` es mayor que la dimensión generada.** Causa probable: el valor de `EMBED_DIM` es mayor que la dimensión que genera el modelo. El índice se creó con la dimensión generada, y el valor declarado queda mostrado por separado en la tabla de parámetros del informe (la fila `EMBED_DIM_DECLARADO`). Solución: fijar `EMBED_DIM` en la dimensión del modelo (por ejemplo, `384` para el modelo `all-MiniLM-L6-v2`) en el archivo `.env`.
-- **El pipeline emite un mensaje INFO de que `EMBED_DIM` es menor que la dimensión máxima del modelo.** Causa probable: el valor de `EMBED_DIM` es menor que la dimensión máxima declarada. Es un mensaje informativo: el índice se creó con la dimensión declarada y el modelo puede manejar hasta la dimensión máxima; para indexar con más dimensiones, conviene aumentar `EMBED_DIM` y regenerar.
-- **Ollama responde sin el campo de embeddings.** Causa probable: versión antigua del servicio. Solución: actualizar Ollama a al menos la versión 0.9 (el punto de servicio por lotes `/api/embed` lo exige) o cambiar a `EMBED_PROVIDER=huggingface`.
-- **ChromaDB emite el error de tamaño de lote máximo superado (el mensaje indica `greater than max batch size`).** Causa probable: colección dañada (el código ya inserta por lotes). Solución: borrar el directorio `output/` y volver a generar el índice.
-- **La fase de etiquetado usa la categoría por defecto `instalaciones`.** Causa probable: el LLM devolvió un objeto JSON malformado. Solución: revisar que el modelo de `TAG_PROVIDER` sea capaz de emitir JSON válido. Para el pipeline no es un error: se marca en la consola y el proceso continúa.
-- **La deduplicación descarta casi todo el corpus** (por ejemplo, más del noventa por ciento con `DEDUP_UMBRAL` fijado en 0.93). Causa probable: el umbral es ajustable y, en los archivos CSV con chunking por fuente, las fuentes repetitivas se deduplican a gran escala. Solución: bajar el umbral (por ejemplo, `0.85`) para conservar más chunks, o subirlo (por ejemplo, `0.95`) para deduplicar más. Para inspeccionar los pares descartados, consultar la auditoría `output/dedup_audit.jsonl` con `scripts/auditar_dedup.py`.
-- **Se cambió el troceado o el modelo y la recuperación falla.** Causa probable: el índice no fue regenerado. Solución: ejecutar `python -m src.pipeline data --recreate-index`.
+- **El pipeline se interrumpe en la preverificación con un mensaje PREFLIGHT que indica que el modelo no está disponible en el proveedor seleccionado.**   
+  → **Causa probable:** el modelo no existe en el proveedor seleccionado (error tipográfico, o Ollama no cuenta con él descargado).  
+  → **Solución:** arrancar el servicio con el modelo descargado (mediante el comando `ollama pull` seguido del nombre del modelo) o corregir la constante `EMBED_*_MODEL` correspondiente en el archivo `.env`.
+
+- **El pipeline emite un aviso PREFLIGHT de que la verificación online no pudo completarse (red cortada o ausencia de clave API).**  
+→ **Causa problable:** El modelo se asume disponible a través de la memoria caché `EMBED_DIM_MAX_*`.  
+→ Es un mensaje informativo y el proceso continúa; para blindarlo por completo, conviene declarar la constante `EMBED_DIM_MAX_` del proveedor en el archivo `.env`, arrancar el servicio y configurar la clave `GOOGLE_API_KEY` si el proveedor es Google.
+
+- **El pipeline emite un aviso AVISO de que `EMBED_DIM` es mayor que la dimensión generada.**  
+→ **Causa probable:** el valor de `EMBED_DIM` es mayor que la dimensión que genera el modelo. El índice se creó con la dimensión nativa del modelo, y el valor declarado queda mostrado por separado en la tabla de parámetros del informe (la fila `EMBED_DIM_DECLARADO`).  
+→ **Solución:** fijar `EMBED_DIM` en la dimensión del modelo (por ejemplo, `384` para el modelo `all-MiniLM-L6-v2`) en el archivo `.env`.
+
+- **El pipeline emite un mensaje INFO de que `EMBED_DIM` es menor que la dimensión máxima del modelo.**  
+  → **Causa probable:** el valor de `EMBED_DIM` es menor que la dimensión máxima declarada.  
+  → Es un mensaje informativo: el índice se creó con la dimensión declarada y el modelo puede manejar hasta la dimensión máxima; para indexar con más dimensiones, conviene aumentar `EMBED_DIM` y regenerar.
+
+- **Ollama responde sin el campo de embeddings.**  
+  → **Causa probable:** versión antigua del servicio.    
+  → **Solución:** actualizar Ollama a al menos la versión 0.9 (el punto de servicio por lotes `/api/embed` lo exige) o cambiar a `EMBED_PROVIDER=huggingface`.
+
+- **ChromaDB emite el error de tamaño de lote máximo superado (el mensaje indica `greater than max batch size`).**   
+→ **Causa probable:** colección dañada (el código ya inserta por lotes).  
+→ **Solución:** borrar el directorio `output/` y volver a generar el índice.
+
+- **La fase de etiquetado usa la categoría por defecto `instalaciones`.**  
+→ **Causa probable:** el LLM devolvió un objeto JSON malformado.  
+→ **Solución:** revisar que el modelo de `TAG_PROVIDER` sea capaz de emitir JSON válido. Para el pipeline no es un error: se marca en la consola y el proceso continúa.
+
+- **La deduplicación descarta casi todo el corpus** (por ejemplo, más del noventa por ciento con `DEDUP_UMBRAL` fijado en 0.93).  
+→ **Causa probable:** el umbral es ajustable y, en los archivos CSV con chunking por fuente, las fuentes repetitivas se deduplican a gran escala.  
+→ **Solución:** bajar el umbral (por ejemplo, `0.85`) para conservar más chunks, o subirlo (por ejemplo, `0.95`) para deduplicar más. Para inspeccionar los pares descartados, consultar la auditoría `output/dedup_audit.jsonl` con `scripts/auditar_dedup.py`.
+
+- **Se cambió el troceado o el modelo y la recuperación falla.**   
+  → **Causa probable:** el índice no fue regenerado.  
+  → **Solución:** ejecutar `python -m src.pipeline data --recreate-index`.

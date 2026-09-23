@@ -108,12 +108,27 @@ EMBED_DIM_MAX_GOOGLE: int | None = _dim_max("google")
 
 # --- TSD: tagging + scoring + dedup ---
 TAG_SCORING_DEDUP: bool = os.getenv("TAG_SCORING_DEDUP", "true").lower() == "true"
+# Tope de tokens de salida del LLM de etiquetado. Debe cubrir el razonamiento
+# interno del modelo (p. ej. Gemini destina crédito de token al razonamiento)
+# más el JSON final; MAX_256 provocaba el JSON truncado (finishReason MAX_TOKENS).
+TAG_MAX_TOKENS: int = int(os.getenv("TAG_MAX_TOKENS", "1536"))
+
 DEDUP_UMBRAL: float = float(os.getenv("DEDUP_UMBRAL", "0.93"))  # punto de partida para all-minilm-l6-v2
 # Auditoría de pares descartados: una línea JSON por descarte (coseno/clave,
 # similitud del par, chunk afectado y vencedor) para inspeccionar por qué y
 # contra qué se descartó cada chunk. Vacío = sin auditoría.
 DEDUP_AUDIT: bool = os.getenv("DEDUP_AUDIT", "true").lower() == "true"
 DEDUP_AUDIT_RUTA: str = os.getenv("DEDUP_AUDIT_RUTA", "output/dedup_audit.jsonl")
+
+# --- Set de preguntas (offline, a partir de output/embeddings.json) ---
+# El script solo se dispara si .env declara QUESTION_SET=true.
+QUESTION_SET: str = os.getenv("QUESTION_SET", "")
+# Máximo de preguntas por texto (el LLM genera entre 1 y MAX_QUESTIONS).
+MAX_QUESTIONS: int = int(os.getenv("MAX_QUESTIONS", "1"))
+# Ruta del JSONL de salida (una línea por texto con sus preguntas).
+QUESTION_SET_RUTA: str = os.getenv("QUESTION_SET_RUTA", "output/question_set.json")
+# Timeout por llamada al chat del LLM generador.
+GEN_TIMEOUT: int = int(os.getenv("GEN_TIMEOUT", "120"))
 
 # --- ChromaDB ---
 CHROMA_DIR: str = os.getenv("CHROMA_DIR", "./output/chroma_db")

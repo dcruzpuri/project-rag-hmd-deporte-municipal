@@ -225,9 +225,16 @@ __marimo__/
 # Carpetas y archivos del proyecto
 .gitignore
 output/
+chroma/
 ENUNCIADO.md
 GUIA.html
 .playwright-mcp
 *.env
 .DS_Store
-chroma/
+.vscode/
+.pytest_tmp/
+tests/
+test_*.py
+
+
+

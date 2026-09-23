@@ -152,7 +152,8 @@ def deduplicar(
             chunks conservados) y la auditoría de pares descartados:
             «descartes» (uno por chunk: motivo dedup_coseno/dedup_clave,
             similitud del par, chunk afectado y chunk vencedor con sus
-            fuentes y snippets), «descartes_por_fuente» (n por fuente) y
+            fuentes, identificadores únicos (fuente, doc_id, chunk_index,
+            global_id) y snippets), «descartes_por_fuente» (n por fuente) y
             «fuentes_vacias» (fuentes que entraron y salieron a 0, con el
             descarte que las vació).
     """
@@ -190,7 +191,10 @@ def deduplicar(
                 "motivo": "dedup_clave",
                 "policy": policy,
                 "fuente": chunk.metadata.get("source", "?"),
+                "doc_id": chunk.metadata.get("doc_id"),
                 "chunk_index": chunk.metadata.get("chunk_index"),
+                # posición pre-dedup: identificador único del chunk
+                "global_id": i,
                 "pos": chunk.metadata.get("row"),
                 "snip": _snip(chunk),
                 "claves": _claves(chunk),
@@ -202,22 +206,30 @@ def deduplicar(
     kept: set[int] = set(passthrough)
     if semantic:
         sem_chunks = [chunks[i] for i in semantic]
+        sem_orig = {j: semantic[j] for j in range(len(semantic))}
         sem_embs = [embeddings[i] for i in semantic]
         sem_kept_pos, _, desc_coseno = _deduplicar_semantico(sem_chunks, sem_embs, umbral)
         kept.update(semantic[j] for j in sem_kept_pos)
         for i_sem, sim, j_gan in desc_coseno:
             vict, derro = sem_chunks[j_gan], sem_chunks[i_sem]
+            # i_sem/j_gan son posiciones en la sublista semántica; las
+            # posiciones originales (global_id) identifican cada chunk.
+            g_derro, g_vict = sem_orig[i_sem], sem_orig[j_gan]
             eventos.append({
                 "motivo": "dedup_coseno",
                 "sim": round(float(sim), 4),
                 "fuente": derro.metadata.get("source", "?"),
+                "doc_id": derro.metadata.get("doc_id"),
                 "chunk_index": derro.metadata.get("chunk_index"),
+                "global_id": g_derro,
                 "pos": derro.metadata.get("row"),
                 "policy": derro.metadata.get("dedup_policy"),
                 "snip": _snip(derro),
                 "pareja": {
                     "fuente": vict.metadata.get("source", "?"),
+                    "doc_id": vict.metadata.get("doc_id"),
                     "chunk_index": vict.metadata.get("chunk_index"),
+                    "global_id": g_vict,
                     "pos": vict.metadata.get("row"),
                     "score": vict.metadata.get("semantic_score", 0.0),
                     "snip": _snip(vict),

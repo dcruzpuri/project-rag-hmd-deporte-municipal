@@ -7,7 +7,7 @@ El presente documento describe el procedimiento para modificar el nivel de troce
 ## 2. Alcance y referencias
 
 - **Aplicabilidad**: el módulo `src/chunk.py` (único punto del corte), el módulo `config.py`, el script `scripts/eval_coherencia_chunks.py` y la prueba `tests/test_chunks.py`.
-- **Referencias**: el apartado noveno de `HIGHLIGHTS_CORPUS_DATA.md` (título *El troceado con criterio (nivel dos) y su validación*) y la escala de niveles (uno para caracteres fijos, dos recursivo, tres específico del documento, cuatro semántico y cinco agéntico) documentada en el apartado sexto de `FT_CORPUS_DATA.md`.
+- **Referencias**: el apartado noveno de `HIGHLIGHTS_CORPUS_DATA.md`, titulado *El troceado con criterio (nivel dos) y su validación*, y el apartado sexto de `FT_CORPUS_DATA.md`, donde se documenta la escala de niveles de troceado (uno: caracteres fijos; dos: recursivo; tres: específico del documento; cuatro: semántico; cinco: agéntico).
 
 ## 3. Regla fundamental
 

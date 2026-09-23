@@ -107,9 +107,9 @@ def _redundancia_politica_md(scoring: dict[str, Any]) -> list[str]:
 
 
 def _auditoria_md(dedup: dict[str, Any]) -> list[str]:
-    """Auditoría de pares descartados en la 6.2: línea del JSONL (o desactivada),
-    tabla por fuente y muestra de los top-5 pares coseno por similitud.
-    Opcional: si el dedup no volcó datos de auditoría, solo se indica el estado."""
+    """Auditoría de pares descartados en la 6.2: línea del JSONL (o desactivada)
+    y tabla por fuente. Opcional: si el dedup no volcó datos de auditoría,
+    solo se indica el estado."""
     lineas: list[str] = []
     audit = dedup.get("audit")
     if audit:
@@ -126,24 +126,6 @@ def _auditoria_md(dedup: dict[str, Any]) -> list[str]:
                    "| fuente | descartes |", "|---|---|"]
         for fuente, n in sorted(por_fuente.items()):
             lineas.append(f"| {fuente} | {n} |")
-        lineas.append("")
-    muestras = [e for e in (dedup.get("descartes") or [])
-                if e["motivo"] == "dedup_coseno"]
-    if muestras:
-        tope = sorted(muestras, key=lambda e: e["sim"], reverse=True)[:5]
-        lineas += [
-            "**Muestra (top 5 pares coseno por similitud):**",
-            "",
-            "| sim | descartado | conservado (vencedor) |",
-            "|---|---|---|",
-        ]
-        for e in tope:
-            par = e["pareja"]
-            der = f"`{e['fuente']}` · chunk {e.get('chunk_index')} — \"{e['snip'][:60]}\""
-            ven = (f"`{par['fuente']}` · chunk {par.get('chunk_index')} "
-                   f"· score {par['score']} — \"{par['snip'][:60]}\"")
-            der_s, ven_s = der.replace("|", "\\|"), ven.replace("|", "\\|")
-            lineas.append(f"| {e['sim']} | {der_s} | {ven_s} |")
         lineas.append("")
     return lineas
 
